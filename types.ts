@@ -16,6 +16,8 @@ export interface ServiceInfo {
   priceRange: string;
   image: string;
   available: boolean;
+  createdAt?: string; // ISO Date String
+  updatedAt?: string; // ISO Date String
 }
 
 export interface BlogPost {
@@ -59,6 +61,8 @@ export interface Appointment {
   email: string;
   status: AppointmentStatus;
   notes?: string;
+  createdAt?: string; // ISO Date String
+  updatedAt?: string; // ISO Date String
 }
 
 export type InquiryStatus = 'New' | 'Contacted' | 'Follow-up Needed' | 'Resolved';
@@ -72,4 +76,6 @@ export interface Inquiry {
   date: string;
   read: boolean;
   status?: InquiryStatus;
+  createdAt?: string; // ISO Date String
+  updatedAt?: string; // ISO Date String
 }

@@ -7,18 +7,30 @@ const APPOINTMENTS_KEY = 'optimum_skin_appointments_db';
 const INQUIRIES_KEY = 'optimum_skin_inquiries_db';
 const SERVICES_KEY = 'optimum_skin_services_db';
 
+// Helper to add timestamps if missing
+const withTimestamps = (item: any) => {
+  const now = new Date().toISOString();
+  return {
+    ...item,
+    createdAt: item.createdAt || now,
+    updatedAt: now
+  };
+};
+
 // Initialize storage with mock data if it's the first visit
-const initStorage = () => {
+export const initStorage = () => {
   if (typeof window !== 'undefined') {
     if (!localStorage.getItem(APPOINTMENTS_KEY)) {
-      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(mockAppointments));
+      const seededAppointments = mockAppointments.map(a => ({...a, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}));
+      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(seededAppointments));
     }
     if (!localStorage.getItem(INQUIRIES_KEY)) {
-      localStorage.setItem(INQUIRIES_KEY, JSON.stringify(mockInquiries));
+      const seededInquiries = mockInquiries.map(i => ({...i, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}));
+      localStorage.setItem(INQUIRIES_KEY, JSON.stringify(seededInquiries));
     }
     if (!localStorage.getItem(SERVICES_KEY)) {
-      // Initialize with the static service data
-      localStorage.setItem(SERVICES_KEY, JSON.stringify(servicesData));
+      const seededServices = servicesData.map(s => ({...s, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}));
+      localStorage.setItem(SERVICES_KEY, JSON.stringify(seededServices));
     }
   }
 };
@@ -29,7 +41,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export const backend = {
   // --- Appointments ---
   getAppointments: async (): Promise<Appointment[]> => {
-    await delay(300); // Simulate network latency
+    await delay(300); 
     initStorage();
     const data = localStorage.getItem(APPOINTMENTS_KEY);
     return data ? JSON.parse(data) : [];
@@ -38,23 +50,24 @@ export const backend = {
   addAppointment: async (appointment: Appointment): Promise<Appointment> => {
     await delay(500);
     const appointments = await backend.getAppointments();
+    const newAppointment = withTimestamps(appointment);
     // Add to top
-    const newAppointments = [appointment, ...appointments];
+    const newAppointments = [newAppointment, ...appointments];
     localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(newAppointments));
-    return appointment;
+    return newAppointment;
   },
 
   updateAppointmentStatus: async (id: string, status: AppointmentStatus): Promise<void> => {
     await delay(300);
     const appointments = await backend.getAppointments();
-    const updated = appointments.map(a => a.id === id ? { ...a, status } : a);
+    const updated = appointments.map(a => a.id === id ? { ...a, status, updatedAt: new Date().toISOString() } : a);
     localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updated));
   },
 
   updateMultipleAppointmentStatuses: async (ids: string[], status: AppointmentStatus): Promise<void> => {
     await delay(400);
     const appointments = await backend.getAppointments();
-    const updated = appointments.map(a => ids.includes(a.id) ? { ...a, status } : a);
+    const updated = appointments.map(a => ids.includes(a.id) ? { ...a, status, updatedAt: new Date().toISOString() } : a);
     localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updated));
   },
 
@@ -69,29 +82,30 @@ export const backend = {
   addInquiry: async (inquiry: Inquiry): Promise<Inquiry> => {
     await delay(500);
     const inquiries = await backend.getInquiries();
-    const newInquiries = [inquiry, ...inquiries];
+    const newInquiry = withTimestamps(inquiry);
+    const newInquiries = [newInquiry, ...inquiries];
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(newInquiries));
-    return inquiry;
+    return newInquiry;
   },
 
   markInquiryRead: async (id: string): Promise<void> => {
     await delay(200);
     const inquiries = await backend.getInquiries();
-    const updated = inquiries.map(i => i.id === id ? { ...i, read: true } : i);
+    const updated = inquiries.map(i => i.id === id ? { ...i, read: true, updatedAt: new Date().toISOString() } : i);
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 
   markMultipleInquiriesRead: async (ids: string[]): Promise<void> => {
     await delay(300);
     const inquiries = await backend.getInquiries();
-    const updated = inquiries.map(i => ids.includes(i.id) ? { ...i, read: true } : i);
+    const updated = inquiries.map(i => ids.includes(i.id) ? { ...i, read: true, updatedAt: new Date().toISOString() } : i);
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 
   updateInquiryStatus: async (id: string, status: InquiryStatus): Promise<void> => {
     await delay(200);
     const inquiries = await backend.getInquiries();
-    const updated = inquiries.map(i => i.id === id ? { ...i, status } : i);
+    const updated = inquiries.map(i => i.id === id ? { ...i, status, updatedAt: new Date().toISOString() } : i);
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 
@@ -114,22 +128,22 @@ export const backend = {
     await delay(200);
     initStorage();
     const data = localStorage.getItem(SERVICES_KEY);
-    // Fallback to static data if localstorage is empty/corrupt
     return data ? JSON.parse(data) : servicesData;
   },
 
   addService: async (service: ServiceInfo): Promise<ServiceInfo> => {
     await delay(500);
     const services = await backend.getServices();
-    const newServices = [service, ...services];
+    const newService = withTimestamps(service);
+    const newServices = [newService, ...services];
     localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
-    return service;
+    return newService;
   },
 
   updateService: async (updatedService: ServiceInfo): Promise<void> => {
     await delay(300);
     const services = await backend.getServices();
-    const newServices = services.map(s => s.id === updatedService.id ? updatedService : s);
+    const newServices = services.map(s => s.id === updatedService.id ? { ...updatedService, updatedAt: new Date().toISOString() } : s);
     localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
   },
 
@@ -143,14 +157,14 @@ export const backend = {
   toggleServiceAvailability: async (id: string, isAvailable: boolean): Promise<void> => {
     await delay(300);
     const services = await backend.getServices();
-    const updated = services.map(s => s.id === id ? { ...s, available: isAvailable } : s);
+    const updated = services.map(s => s.id === id ? { ...s, available: isAvailable, updatedAt: new Date().toISOString() } : s);
     localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
   },
 
   toggleMultipleServicesAvailability: async (ids: string[], isAvailable: boolean): Promise<void> => {
     await delay(400);
     const services = await backend.getServices();
-    const updated = services.map(s => ids.includes(s.id) ? { ...s, available: isAvailable } : s);
+    const updated = services.map(s => ids.includes(s.id) ? { ...s, available: isAvailable, updatedAt: new Date().toISOString() } : s);
     localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
   },
 
@@ -165,6 +179,7 @@ export const backend = {
   getBackupData: async (): Promise<string> => {
     await delay(500);
     const backup = {
+      version: "1.0",
       appointments: JSON.parse(localStorage.getItem(APPOINTMENTS_KEY) || '[]'),
       inquiries: JSON.parse(localStorage.getItem(INQUIRIES_KEY) || '[]'),
       services: JSON.parse(localStorage.getItem(SERVICES_KEY) || JSON.stringify(servicesData)),
@@ -197,7 +212,7 @@ export const backend = {
     localStorage.removeItem(APPOINTMENTS_KEY);
     localStorage.removeItem(INQUIRIES_KEY);
     localStorage.removeItem(SERVICES_KEY);
-    initStorage();
+    initStorage(); // Re-seed
     return true;
   }
 };
