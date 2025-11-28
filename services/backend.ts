@@ -97,6 +97,28 @@ export const backend = {
     return data ? JSON.parse(data) : servicesData;
   },
 
+  addService: async (service: ServiceInfo): Promise<ServiceInfo> => {
+    await delay(500);
+    const services = await backend.getServices();
+    const newServices = [service, ...services];
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
+    return service;
+  },
+
+  updateService: async (updatedService: ServiceInfo): Promise<void> => {
+    await delay(300);
+    const services = await backend.getServices();
+    const newServices = services.map(s => s.id === updatedService.id ? updatedService : s);
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
+  },
+
+  deleteService: async (id: string): Promise<void> => {
+    await delay(300);
+    const services = await backend.getServices();
+    const newServices = services.filter(s => s.id !== id);
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
+  },
+
   toggleServiceAvailability: async (id: string, isAvailable: boolean): Promise<void> => {
     await delay(300);
     const services = await backend.getServices();

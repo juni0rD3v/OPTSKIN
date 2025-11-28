@@ -4,10 +4,10 @@ import {
   LayoutDashboard, Calendar as CalendarIcon, MessageSquare, LogOut, 
   CheckCircle, XCircle, Clock, Search, MoreHorizontal, User, Mail, Phone, ChevronRight, ChevronLeft,
   Filter, ChevronUp, ChevronDown, ArrowUpDown, AlertTriangle, CheckSquare, ExternalLink, History, Users, Eye, FileText,
-  BarChart3, TrendingUp, DollarSign, PieChart, Trash2, RotateCcw, Menu, X, Database, Download, Upload, Lock, Settings, AlertOctagon, Briefcase, RefreshCw
+  BarChart3, TrendingUp, DollarSign, PieChart, Trash2, RotateCcw, Menu, X, Database, Download, Upload, Lock, Settings, AlertOctagon, Briefcase, Plus, Edit
 } from 'lucide-react';
-import { Appointment, Inquiry, AppointmentStatus, InquiryStatus, ServiceInfo } from '../types';
-import { servicesData } from '../data/services'; // Kept for price calc fallback
+import { Appointment, Inquiry, AppointmentStatus, InquiryStatus, ServiceInfo, ServiceCategory } from '../types';
+import { servicesData } from '../data/services';
 import { ToastType } from './Toast';
 
 interface AdminDashboardProps {
@@ -20,6 +20,9 @@ interface AdminDashboardProps {
   onMarkInquiryRead: (id: string) => void;
   onInquiryStatusChange: (id: string, status: InquiryStatus) => void;
   onToggleServiceAvailability: (id: string, isAvailable: boolean) => void;
+  onAddService: (service: ServiceInfo) => void;
+  onUpdateService: (service: ServiceInfo) => void;
+  onDeleteService: (id: string) => void;
   showToast: (message: string, type: ToastType) => void;
   onViewSite: () => void;
   onDownloadBackup: () => void;
@@ -38,6 +41,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onMarkInquiryRead, 
   onInquiryStatusChange,
   onToggleServiceAvailability,
+  onAddService,
+  onUpdateService,
+  onDeleteService,
   showToast, 
   onViewSite,
   onDownloadBackup,
@@ -84,9 +90,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Confirmation Dialog State
   const [confirmationAction, setConfirmationAction] = useState<{
     isOpen: boolean;
-    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | null;
+    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | null;
     appointmentId: string | null;
   }>({ isOpen: false, type: null, appointmentId: null });
+
+  // Service Management State
+  const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
+  const [editingService, setEditingService] = useState<ServiceInfo | null>(null);
+  const [serviceFormData, setServiceFormData] = useState<Partial<ServiceInfo>>({
+    title: '',
+    category: ServiceCategory.SKIN_REJUVENATION,
+    description: '',
+    priceRange: '',
+    image: 'https://picsum.photos/400/500',
+    available: true,
+    detailedDescription: '',
+    benefits: []
+  });
 
   // Client History State
   const [viewClientHistory, setViewClientHistory] = useState<string | null>(null);
@@ -430,7 +450,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Action Handlers
-  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase') => {
+  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService') => {
     setConfirmationAction({ isOpen: true, type, appointmentId: id });
   };
 
@@ -446,6 +466,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (confirmationAction.type === 'ResetDatabase') {
          onResetDatabase();
          message = 'System reset completed.';
+      }
+      else if (confirmationAction.type === 'DeleteService' && confirmationAction.appointmentId) {
+         onDeleteService(confirmationAction.appointmentId);
+         message = 'Service deleted successfully';
       }
       else if (confirmationAction.type.startsWith('Bulk')) {
          const ids = Array.from(selectedIds);
@@ -469,10 +493,47 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onStatusChange(confirmationAction.appointmentId, newStatus);
       }
 
-      if (confirmationAction.type !== 'ResetDatabase') showToast(message, toastType);
+      if (confirmationAction.type !== 'ResetDatabase' && confirmationAction.type !== 'DeleteService') showToast(message, toastType);
       closeConfirmation();
       setViewAppointment(null);
     }
+  };
+
+  // Service Management Handlers
+  const openAddServiceModal = () => {
+    setServiceFormData({
+        title: '',
+        category: ServiceCategory.SKIN_REJUVENATION,
+        description: '',
+        priceRange: '',
+        image: 'https://picsum.photos/400/500',
+        available: true,
+        detailedDescription: '',
+        benefits: []
+    });
+    setEditingService(null);
+    setIsServiceModalOpen(true);
+  };
+
+  const openEditServiceModal = (service: ServiceInfo) => {
+    setServiceFormData(service);
+    setEditingService(service);
+    setIsServiceModalOpen(true);
+  };
+
+  const handleServiceSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingService) {
+        onUpdateService({ ...editingService, ...serviceFormData } as ServiceInfo);
+    } else {
+        const newService: ServiceInfo = {
+            id: `SVC-${Date.now()}`,
+            ...serviceFormData as ServiceInfo,
+            benefits: serviceFormData.benefits || []
+        };
+        onAddService(newService);
+    }
+    setIsServiceModalOpen(false);
   };
 
   // Client History Helpers
@@ -1351,9 +1412,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* SERVICES TAB */}
         {activeTab === 'services' && (
            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in pb-10">
-              <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                 <h2 className="text-lg font-bold text-gray-900">Services Management</h2>
-                 <p className="text-sm text-gray-500">Toggle availability of clinic services.</p>
+              <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                 <div>
+                    <h2 className="text-lg font-bold text-gray-900">Services Management</h2>
+                    <p className="text-sm text-gray-500">Toggle availability of clinic services.</p>
+                 </div>
+                 <div className="flex gap-3">
+                    <div className="relative w-full md:w-64">
+                       <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                       <input 
+                         type="text" 
+                         placeholder="Search services..." 
+                         className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500"
+                         value={searchTerm}
+                         onChange={(e) => setSearchTerm(e.target.value)}
+                       />
+                    </div>
+                    <button 
+                       onClick={openAddServiceModal}
+                       className="bg-black text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gold-600 transition-colors"
+                    >
+                       <Plus size={16} /> Add Service
+                    </button>
+                 </div>
               </div>
               
               <div className="overflow-x-auto">
@@ -1368,7 +1449,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-sm">
-                       {services.map((service) => (
+                       {services
+                          .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()))
+                          .map((service) => (
                           <tr key={service.id} className="hover:bg-gray-50 transition-colors">
                              <td className="p-4">
                                 <div className="flex items-center gap-3">
@@ -1388,16 +1471,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </span>
                              </td>
                              <td className="p-4 text-right">
-                                <button 
-                                  onClick={() => onToggleServiceAvailability(service.id, !service.available)}
-                                  className={`px-3 py-1.5 rounded text-xs font-bold transition-colors border ${
-                                     service.available 
-                                     ? 'border-red-200 text-red-600 hover:bg-red-50' 
-                                     : 'border-green-200 text-green-600 hover:bg-green-50'
-                                  }`}
-                                >
-                                   {service.available ? 'Disable Service' : 'Enable Service'}
-                                </button>
+                                <div className="flex items-center justify-end gap-3">
+                                   <div className="flex items-center gap-2 mr-2">
+                                      <span className="text-[10px] text-gray-400 uppercase font-bold">Public Booking</span>
+                                      <button 
+                                        onClick={() => onToggleServiceAvailability(service.id, !service.available)}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gold-500 focus:ring-offset-2 ${
+                                          service.available ? 'bg-green-500' : 'bg-gray-200'
+                                        }`}
+                                      >
+                                        <span
+                                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                            service.available ? 'translate-x-6' : 'translate-x-1'
+                                          }`}
+                                        />
+                                      </button>
+                                   </div>
+                                   
+                                   <button 
+                                      onClick={() => openEditServiceModal(service)}
+                                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Edit Service"
+                                   >
+                                      <Edit size={18} />
+                                   </button>
+                                   <button 
+                                      onClick={() => openConfirmation(service.id, 'DeleteService')}
+                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors" title="Delete Service"
+                                   >
+                                      <Trash2 size={18} />
+                                   </button>
+                                </div>
                              </td>
                           </tr>
                        ))}
@@ -1517,6 +1620,88 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       </main>
 
+      {/* SERVICE MODAL (Add/Edit) */}
+      {isServiceModalOpen && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 animate-slide-in max-h-[90vh] overflow-y-auto">
+               <h2 className="text-xl font-serif font-bold text-gray-900 mb-4">
+                  {editingService ? 'Edit Service' : 'Add New Service'}
+               </h2>
+               <form onSubmit={handleServiceSubmit} className="space-y-4">
+                  <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Service Title</label>
+                     <input 
+                        type="text" 
+                        required 
+                        value={serviceFormData.title}
+                        onChange={(e) => setServiceFormData({...serviceFormData, title: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-gold-500 outline-none"
+                     />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                     <select 
+                        value={serviceFormData.category}
+                        onChange={(e) => setServiceFormData({...serviceFormData, category: e.target.value as ServiceCategory})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-gold-500 outline-none"
+                     >
+                        {Object.values(ServiceCategory).map(cat => (
+                           <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                     </select>
+                  </div>
+                  <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Price Range</label>
+                     <input 
+                        type="text" 
+                        placeholder="e.g., ₱3,500 - ₱5,000"
+                        required 
+                        value={serviceFormData.priceRange}
+                        onChange={(e) => setServiceFormData({...serviceFormData, priceRange: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-gold-500 outline-none"
+                     />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                     <textarea 
+                        rows={3}
+                        required 
+                        value={serviceFormData.description}
+                        onChange={(e) => setServiceFormData({...serviceFormData, description: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-gold-500 outline-none"
+                     />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+                     <input 
+                        type="url" 
+                        placeholder="https://..."
+                        required 
+                        value={serviceFormData.image}
+                        onChange={(e) => setServiceFormData({...serviceFormData, image: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-gold-500 outline-none"
+                     />
+                  </div>
+                  <div className="flex justify-end gap-3 mt-6">
+                     <button 
+                        type="button" 
+                        onClick={() => setIsServiceModalOpen(false)}
+                        className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+                     >
+                        Cancel
+                     </button>
+                     <button 
+                        type="submit" 
+                        className="px-4 py-2 bg-black text-white rounded hover:bg-gold-600 transition-colors"
+                     >
+                        {editingService ? 'Update Service' : 'Add Service'}
+                     </button>
+                  </div>
+               </form>
+            </div>
+         </div>
+      )}
+
       {/* Day Schedule Modal (Calendar Interaction) */}
       {selectedCalendarDate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -1580,7 +1765,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
                   confirmationAction.type?.includes('Confirm') ? 'bg-green-100 text-green-600' :
                   confirmationAction.type?.includes('Cancel') ? 'bg-red-100 text-red-600' :
-                  confirmationAction.type?.includes('Trash') ? 'bg-gray-100 text-gray-600' :
+                  confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' ? 'bg-gray-100 text-gray-600' :
                   confirmationAction.type === 'Restore' ? 'bg-gold-100 text-gold-600' :
                   confirmationAction.type === 'ResetDatabase' ? 'bg-red-100 text-red-600' :
                   'bg-blue-100 text-blue-600'
@@ -1597,12 +1782,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {confirmationAction.type === 'BulkCancel' && 'Cancel Selected Items'}
                   {confirmationAction.type === 'BulkComplete' && 'Complete Selected Items'}
                   {confirmationAction.type === 'ResetDatabase' && 'Reset System Database?'}
+                  {confirmationAction.type === 'DeleteService' && 'Delete Service?'}
                 </h3>
                 <p className="text-gray-500 text-sm mb-6">
                   {confirmationAction.type === 'ResetDatabase'
                     ? 'WARNING: This will delete ALL current appointments and inquiries and reset the system to its initial state. Are you absolutely sure?' 
                     : confirmationAction.type?.includes('Trash')
                     ? 'Are you sure you want to remove these items? You can restore them later.' 
+                    : confirmationAction.type === 'DeleteService'
+                    ? 'This will permanently remove the service from your list.'
                     : confirmationAction.type === 'Restore' 
                     ? 'This appointment will be moved back to Pending status.'
                     : confirmationAction.type?.startsWith('Bulk')
@@ -1624,7 +1812,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                      className={`flex-1 py-2.5 rounded-lg text-white font-medium shadow-md transition-colors ${
                        confirmationAction.type?.includes('Confirm') ? 'bg-green-600 hover:bg-green-700' :
                        confirmationAction.type?.includes('Cancel') ? 'bg-red-600 hover:bg-red-700' :
-                       confirmationAction.type?.includes('Trash') ? 'bg-gray-600 hover:bg-gray-700' :
+                       confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' ? 'bg-gray-600 hover:bg-gray-700' :
                        confirmationAction.type === 'Restore' ? 'bg-gold-600 hover:bg-gold-700' :
                        confirmationAction.type === 'ResetDatabase' ? 'bg-red-600 hover:bg-red-700' :
                        'bg-blue-600 hover:bg-blue-700'
@@ -1638,6 +1826,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Client History Modal */}
       {viewClientHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col animate-slide-in">
@@ -1729,6 +1918,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Appointment Details Modal */}
       {viewAppointment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full flex flex-col animate-slide-in overflow-hidden max-h-[90vh] overflow-y-auto">
