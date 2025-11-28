@@ -9,7 +9,7 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-// Initialize the database structure before rendering
+// Initialize the database structure (Simulated SQL Tables)
 initStorage();
 
 const root = ReactDOM.createRoot(rootElement);

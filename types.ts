@@ -16,6 +16,13 @@ export interface ServiceInfo {
   priceRange: string;
   image: string;
   available: boolean;
+  
+  // Sale/Discount Fields
+  discountPercentage?: number;
+  salePrice?: string;
+  saleStartDate?: string; // ISO Date String
+  saleEndDate?: string;   // ISO Date String
+
   createdAt?: string; // ISO Date String
   updatedAt?: string; // ISO Date String
 }

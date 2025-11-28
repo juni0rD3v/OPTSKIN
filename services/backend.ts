@@ -3,216 +3,188 @@ import { Appointment, Inquiry, AppointmentStatus, InquiryStatus, ServiceInfo } f
 import { mockAppointments, mockInquiries } from '../data/mockAdminData';
 import { servicesData } from '../data/services';
 
-const APPOINTMENTS_KEY = 'optimum_skin_appointments_db';
-const INQUIRIES_KEY = 'optimum_skin_inquiries_db';
-const SERVICES_KEY = 'optimum_skin_services_db';
-
-// Helper to add timestamps if missing
-const withTimestamps = (item: any) => {
-  const now = new Date().toISOString();
-  return {
-    ...item,
-    createdAt: item.createdAt || now,
-    updatedAt: now
-  };
+// --- DATABASE CONFIGURATION (SIMULATED) ---
+const DB_TABLES = {
+  APPOINTMENTS: 'optimum_skin_appointments_db',
+  INQUIRIES: 'optimum_skin_inquiries_db',
+  SERVICES: 'optimum_skin_services_db'
 };
 
-// Initialize storage with mock data if it's the first visit
+// --- MOCK SQL DRIVER ---
+// This layer simulates how a backend would interact with a database.
+// It handles the "SQL" logic using LocalStorage as the data store.
+
+const simulatedNetworkDelay = (ms: number = 300) => new Promise(resolve => setTimeout(resolve, ms));
+
+const db = {
+  // SELECT * FROM table
+  select: async <T>(tableName: string): Promise<T[]> => {
+    await simulatedNetworkDelay();
+    const data = localStorage.getItem(tableName);
+    return data ? JSON.parse(data) : [];
+  },
+
+  // INSERT INTO table VALUES (...)
+  insert: async <T extends { id: string }>(tableName: string, item: T): Promise<T> => {
+    await simulatedNetworkDelay(500); // Writes take longer
+    const currentData = await db.select<T>(tableName);
+    
+    // Add timestamps
+    const now = new Date().toISOString();
+    const newItem = {
+      ...item,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // Prepend to simulate LIFO (or append depending on preference, here LIFO for dashboard convenience)
+    const newData = [newItem, ...currentData];
+    localStorage.setItem(tableName, JSON.stringify(newData));
+    return newItem;
+  },
+
+  // UPDATE table SET ... WHERE id = ...
+  update: async <T extends { id: string }>(tableName: string, id: string, updates: Partial<T>): Promise<void> => {
+    await simulatedNetworkDelay();
+    const currentData = await db.select<T>(tableName);
+    
+    const updatedData = currentData.map(item => 
+      item.id === id 
+        ? { ...item, ...updates, updatedAt: new Date().toISOString() } 
+        : item
+    );
+    
+    localStorage.setItem(tableName, JSON.stringify(updatedData));
+  },
+
+  // DELETE FROM table WHERE id = ...
+  delete: async <T extends { id: string }>(tableName: string, id: string): Promise<void> => {
+    await simulatedNetworkDelay();
+    const currentData = await db.select<T>(tableName);
+    const filteredData = currentData.filter(item => item.id !== id);
+    localStorage.setItem(tableName, JSON.stringify(filteredData));
+  },
+
+  // Bulk Operations (Transactions)
+  bulkUpdate: async <T extends { id: string }>(tableName: string, ids: string[], updates: Partial<T>): Promise<void> => {
+    await simulatedNetworkDelay(400);
+    const currentData = await db.select<T>(tableName);
+    
+    const updatedData = currentData.map(item => 
+      ids.includes(item.id) 
+        ? { ...item, ...updates, updatedAt: new Date().toISOString() } 
+        : item
+    );
+    
+    localStorage.setItem(tableName, JSON.stringify(updatedData));
+  },
+
+  bulkDelete: async <T extends { id: string }>(tableName: string, ids: string[]): Promise<void> => {
+    await simulatedNetworkDelay(400);
+    const currentData = await db.select<T>(tableName);
+    const filteredData = currentData.filter(item => !ids.includes(item.id));
+    localStorage.setItem(tableName, JSON.stringify(filteredData));
+  }
+};
+
+// --- DATA SEEDING ---
 export const initStorage = () => {
   if (typeof window !== 'undefined') {
-    if (!localStorage.getItem(APPOINTMENTS_KEY)) {
-      const seededAppointments = mockAppointments.map(a => ({...a, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}));
-      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(seededAppointments));
+    // Seed Appointments
+    if (!localStorage.getItem(DB_TABLES.APPOINTMENTS)) {
+      const seeded = mockAppointments.map(a => ({
+        ...a, 
+        createdAt: new Date().toISOString(), 
+        updatedAt: new Date().toISOString()
+      }));
+      localStorage.setItem(DB_TABLES.APPOINTMENTS, JSON.stringify(seeded));
     }
-    if (!localStorage.getItem(INQUIRIES_KEY)) {
-      const seededInquiries = mockInquiries.map(i => ({...i, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}));
-      localStorage.setItem(INQUIRIES_KEY, JSON.stringify(seededInquiries));
+    // Seed Inquiries
+    if (!localStorage.getItem(DB_TABLES.INQUIRIES)) {
+      const seeded = mockInquiries.map(i => ({
+        ...i, 
+        createdAt: new Date().toISOString(), 
+        updatedAt: new Date().toISOString()
+      }));
+      localStorage.setItem(DB_TABLES.INQUIRIES, JSON.stringify(seeded));
     }
-    if (!localStorage.getItem(SERVICES_KEY)) {
-      const seededServices = servicesData.map(s => ({...s, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}));
-      localStorage.setItem(SERVICES_KEY, JSON.stringify(seededServices));
+    // Seed Services
+    if (!localStorage.getItem(DB_TABLES.SERVICES)) {
+      const seeded = servicesData.map(s => ({
+        ...s, 
+        createdAt: new Date().toISOString(), 
+        updatedAt: new Date().toISOString()
+      }));
+      localStorage.setItem(DB_TABLES.SERVICES, JSON.stringify(seeded));
     }
   }
 };
 
-// Simulate network delay
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
+// --- API LAYER (Backend Service) ---
 export const backend = {
-  // --- Appointments ---
-  getAppointments: async (): Promise<Appointment[]> => {
-    await delay(300); 
-    initStorage();
-    const data = localStorage.getItem(APPOINTMENTS_KEY);
-    return data ? JSON.parse(data) : [];
-  },
+  // Appointments
+  getAppointments: () => db.select<Appointment>(DB_TABLES.APPOINTMENTS),
+  addAppointment: (apt: Appointment) => db.insert(DB_TABLES.APPOINTMENTS, apt),
+  updateAppointmentStatus: (id: string, status: AppointmentStatus) => db.update<Appointment>(DB_TABLES.APPOINTMENTS, id, { status }),
+  updateMultipleAppointmentStatuses: (ids: string[], status: AppointmentStatus) => db.bulkUpdate<Appointment>(DB_TABLES.APPOINTMENTS, ids, { status }),
 
-  addAppointment: async (appointment: Appointment): Promise<Appointment> => {
-    await delay(500);
-    const appointments = await backend.getAppointments();
-    const newAppointment = withTimestamps(appointment);
-    // Add to top
-    const newAppointments = [newAppointment, ...appointments];
-    localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(newAppointments));
-    return newAppointment;
-  },
+  // Inquiries
+  getInquiries: () => db.select<Inquiry>(DB_TABLES.INQUIRIES),
+  addInquiry: (inq: Inquiry) => db.insert(DB_TABLES.INQUIRIES, inq),
+  markInquiryRead: (id: string) => db.update<Inquiry>(DB_TABLES.INQUIRIES, id, { read: true }),
+  markMultipleInquiriesRead: (ids: string[]) => db.bulkUpdate<Inquiry>(DB_TABLES.INQUIRIES, ids, { read: true }),
+  updateInquiryStatus: (id: string, status: InquiryStatus) => db.update<Inquiry>(DB_TABLES.INQUIRIES, id, { status }),
+  deleteInquiry: (id: string) => db.delete<Inquiry>(DB_TABLES.INQUIRIES, id),
+  deleteMultipleInquiries: (ids: string[]) => db.bulkDelete<Inquiry>(DB_TABLES.INQUIRIES, ids),
 
-  updateAppointmentStatus: async (id: string, status: AppointmentStatus): Promise<void> => {
-    await delay(300);
-    const appointments = await backend.getAppointments();
-    const updated = appointments.map(a => a.id === id ? { ...a, status, updatedAt: new Date().toISOString() } : a);
-    localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updated));
+  // Services
+  getServices: async () => {
+    const data = await db.select<ServiceInfo>(DB_TABLES.SERVICES);
+    // Fallback to static data if empty (safety net)
+    return data.length > 0 ? data : servicesData;
   },
+  addService: (svc: ServiceInfo) => db.insert(DB_TABLES.SERVICES, svc),
+  updateService: (svc: ServiceInfo) => db.update<ServiceInfo>(DB_TABLES.SERVICES, svc.id, svc),
+  deleteService: (id: string) => db.delete<ServiceInfo>(DB_TABLES.SERVICES, id),
+  toggleServiceAvailability: (id: string, available: boolean) => db.update<ServiceInfo>(DB_TABLES.SERVICES, id, { available }),
+  toggleMultipleServicesAvailability: (ids: string[], available: boolean) => db.bulkUpdate<ServiceInfo>(DB_TABLES.SERVICES, ids, { available }),
+  deleteMultipleServices: (ids: string[]) => db.bulkDelete<ServiceInfo>(DB_TABLES.SERVICES, ids),
 
-  updateMultipleAppointmentStatuses: async (ids: string[], status: AppointmentStatus): Promise<void> => {
-    await delay(400);
-    const appointments = await backend.getAppointments();
-    const updated = appointments.map(a => ids.includes(a.id) ? { ...a, status, updatedAt: new Date().toISOString() } : a);
-    localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updated));
-  },
-
-  // --- Inquiries ---
-  getInquiries: async (): Promise<Inquiry[]> => {
-    await delay(300);
-    initStorage();
-    const data = localStorage.getItem(INQUIRIES_KEY);
-    return data ? JSON.parse(data) : [];
-  },
-
-  addInquiry: async (inquiry: Inquiry): Promise<Inquiry> => {
-    await delay(500);
-    const inquiries = await backend.getInquiries();
-    const newInquiry = withTimestamps(inquiry);
-    const newInquiries = [newInquiry, ...inquiries];
-    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(newInquiries));
-    return newInquiry;
-  },
-
-  markInquiryRead: async (id: string): Promise<void> => {
-    await delay(200);
-    const inquiries = await backend.getInquiries();
-    const updated = inquiries.map(i => i.id === id ? { ...i, read: true, updatedAt: new Date().toISOString() } : i);
-    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
-  },
-
-  markMultipleInquiriesRead: async (ids: string[]): Promise<void> => {
-    await delay(300);
-    const inquiries = await backend.getInquiries();
-    const updated = inquiries.map(i => ids.includes(i.id) ? { ...i, read: true, updatedAt: new Date().toISOString() } : i);
-    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
-  },
-
-  updateInquiryStatus: async (id: string, status: InquiryStatus): Promise<void> => {
-    await delay(200);
-    const inquiries = await backend.getInquiries();
-    const updated = inquiries.map(i => i.id === id ? { ...i, status, updatedAt: new Date().toISOString() } : i);
-    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
-  },
-
-  deleteInquiry: async (id: string): Promise<void> => {
-    await delay(300);
-    const inquiries = await backend.getInquiries();
-    const updated = inquiries.filter(i => i.id !== id);
-    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
-  },
-
-  deleteMultipleInquiries: async (ids: string[]): Promise<void> => {
-    await delay(400);
-    const inquiries = await backend.getInquiries();
-    const updated = inquiries.filter(i => !ids.includes(i.id));
-    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
-  },
-
-  // --- Services ---
-  getServices: async (): Promise<ServiceInfo[]> => {
-    await delay(200);
-    initStorage();
-    const data = localStorage.getItem(SERVICES_KEY);
-    return data ? JSON.parse(data) : servicesData;
-  },
-
-  addService: async (service: ServiceInfo): Promise<ServiceInfo> => {
-    await delay(500);
-    const services = await backend.getServices();
-    const newService = withTimestamps(service);
-    const newServices = [newService, ...services];
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
-    return newService;
-  },
-
-  updateService: async (updatedService: ServiceInfo): Promise<void> => {
-    await delay(300);
-    const services = await backend.getServices();
-    const newServices = services.map(s => s.id === updatedService.id ? { ...updatedService, updatedAt: new Date().toISOString() } : s);
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
-  },
-
-  deleteService: async (id: string): Promise<void> => {
-    await delay(300);
-    const services = await backend.getServices();
-    const newServices = services.filter(s => s.id !== id);
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(newServices));
-  },
-
-  toggleServiceAvailability: async (id: string, isAvailable: boolean): Promise<void> => {
-    await delay(300);
-    const services = await backend.getServices();
-    const updated = services.map(s => s.id === id ? { ...s, available: isAvailable, updatedAt: new Date().toISOString() } : s);
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
-  },
-
-  toggleMultipleServicesAvailability: async (ids: string[], isAvailable: boolean): Promise<void> => {
-    await delay(400);
-    const services = await backend.getServices();
-    const updated = services.map(s => ids.includes(s.id) ? { ...s, available: isAvailable, updatedAt: new Date().toISOString() } : s);
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
-  },
-
-  deleteMultipleServices: async (ids: string[]): Promise<void> => {
-    await delay(400);
-    const services = await backend.getServices();
-    const updated = services.filter(s => !ids.includes(s.id));
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
-  },
-
-  // --- Database Management (Backup/Restore) ---
+  // Management
   getBackupData: async (): Promise<string> => {
-    await delay(500);
-    const backup = {
+    const [appointments, inquiries, services] = await Promise.all([
+      db.select(DB_TABLES.APPOINTMENTS),
+      db.select(DB_TABLES.INQUIRIES),
+      db.select(DB_TABLES.SERVICES)
+    ]);
+    
+    return JSON.stringify({
       version: "1.0",
-      appointments: JSON.parse(localStorage.getItem(APPOINTMENTS_KEY) || '[]'),
-      inquiries: JSON.parse(localStorage.getItem(INQUIRIES_KEY) || '[]'),
-      services: JSON.parse(localStorage.getItem(SERVICES_KEY) || JSON.stringify(servicesData)),
-      timestamp: new Date().toISOString()
-    };
-    return JSON.stringify(backup, null, 2);
+      timestamp: new Date().toISOString(),
+      appointments,
+      inquiries,
+      services
+    }, null, 2);
   },
 
   restoreBackupData: async (jsonString: string): Promise<boolean> => {
     try {
       const data = JSON.parse(jsonString);
-      if (data.appointments && Array.isArray(data.appointments)) {
-        localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(data.appointments));
-      }
-      if (data.inquiries && Array.isArray(data.inquiries)) {
-        localStorage.setItem(INQUIRIES_KEY, JSON.stringify(data.inquiries));
-      }
-      if (data.services && Array.isArray(data.services)) {
-        localStorage.setItem(SERVICES_KEY, JSON.stringify(data.services));
-      }
-      await delay(500);
+      if (data.appointments) localStorage.setItem(DB_TABLES.APPOINTMENTS, JSON.stringify(data.appointments));
+      if (data.inquiries) localStorage.setItem(DB_TABLES.INQUIRIES, JSON.stringify(data.inquiries));
+      if (data.services) localStorage.setItem(DB_TABLES.SERVICES, JSON.stringify(data.services));
       return true;
     } catch (e) {
-      console.error("Failed to restore backup", e);
+      console.error("Restore failed", e);
       return false;
     }
   },
 
   resetDatabase: async () => {
-    localStorage.removeItem(APPOINTMENTS_KEY);
-    localStorage.removeItem(INQUIRIES_KEY);
-    localStorage.removeItem(SERVICES_KEY);
-    initStorage(); // Re-seed
+    localStorage.removeItem(DB_TABLES.APPOINTMENTS);
+    localStorage.removeItem(DB_TABLES.INQUIRIES);
+    localStorage.removeItem(DB_TABLES.SERVICES);
+    initStorage();
     return true;
   }
 };
