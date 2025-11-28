@@ -56,22 +56,23 @@ const App: React.FC = () => {
   const [isLoadingData, setIsLoadingData] = useState(true);
 
   // Fetch Data on Load
+  const loadData = async () => {
+    try {
+      const [fetchedAppts, fetchedInquiries] = await Promise.all([
+        backend.getAppointments(),
+        backend.getInquiries()
+      ]);
+      setAppointments(fetchedAppts);
+      setInquiries(fetchedInquiries);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+      showToast("Failed to load backend data", "error");
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [fetchedAppts, fetchedInquiries] = await Promise.all([
-          backend.getAppointments(),
-          backend.getInquiries()
-        ]);
-        setAppointments(fetchedAppts);
-        setInquiries(fetchedInquiries);
-      } catch (error) {
-        console.error("Failed to load data:", error);
-        showToast("Failed to load backend data", "error");
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
     loadData();
   }, []);
 
@@ -201,6 +202,14 @@ const App: React.FC = () => {
     await backend.updateAppointmentStatus(id, status);
   };
 
+  const handleBulkStatusChange = async (ids: string[], status: AppointmentStatus) => {
+    // Optimistic UI update
+    setAppointments(prev => prev.map(apt => 
+      ids.includes(apt.id) ? { ...apt, status } : apt
+    ));
+    await backend.updateMultipleAppointmentStatuses(ids, status);
+  };
+
   const handleNewInquiry = async (data: { name: string; email: string; phone: string; message: string }) => {
     const newInquiry: Inquiry = {
       id: `INQ-${Date.now().toString().slice(-4)}`,
@@ -227,6 +236,42 @@ const App: React.FC = () => {
     
     // Persist
     await backend.markInquiryRead(id);
+  };
+
+  const handleDownloadBackup = async () => {
+    try {
+      const data = await backend.getBackupData();
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `optimum_skin_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Database backup downloaded successfully.', 'success');
+    } catch (e) {
+      showToast('Failed to generate backup.', 'error');
+    }
+  };
+
+  const handleUploadBackup = async (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        const success = await backend.restoreBackupData(e.target.result as string);
+        if (success) {
+          showToast('Database restored successfully. Reloading...', 'success');
+          setTimeout(() => {
+             loadData(); // Reload state
+          }, 1000);
+        } else {
+          showToast('Invalid backup file.', 'error');
+        }
+      }
+    };
+    reader.readAsText(file);
   };
 
   // Hero Slides Data
@@ -285,9 +330,12 @@ const App: React.FC = () => {
           appointments={appointments}
           inquiries={inquiries}
           onStatusChange={handleUpdateAppointmentStatus}
+          onBulkStatusChange={handleBulkStatusChange}
           onMarkInquiryRead={handleMarkInquiryRead}
           showToast={showToast}
           onViewSite={() => setCurrentPage('home')}
+          onDownloadBackup={handleDownloadBackup}
+          onUploadBackup={handleUploadBackup}
         />
       );
     }

@@ -45,6 +45,13 @@ export const backend = {
     localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updated));
   },
 
+  updateMultipleAppointmentStatuses: async (ids: string[], status: AppointmentStatus): Promise<void> => {
+    await delay(400);
+    const appointments = await backend.getAppointments();
+    const updated = appointments.map(a => ids.includes(a.id) ? { ...a, status } : a);
+    localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(updated));
+  },
+
   // --- Inquiries ---
   getInquiries: async (): Promise<Inquiry[]> => {
     await delay(300);
@@ -68,7 +75,34 @@ export const backend = {
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 
-  // --- Reset/Debug ---
+  // --- Database Management (Backup/Restore) ---
+  getBackupData: async (): Promise<string> => {
+    await delay(500);
+    const backup = {
+      appointments: JSON.parse(localStorage.getItem(APPOINTMENTS_KEY) || '[]'),
+      inquiries: JSON.parse(localStorage.getItem(INQUIRIES_KEY) || '[]'),
+      timestamp: new Date().toISOString()
+    };
+    return JSON.stringify(backup, null, 2);
+  },
+
+  restoreBackupData: async (jsonString: string): Promise<boolean> => {
+    try {
+      const data = JSON.parse(jsonString);
+      if (data.appointments && Array.isArray(data.appointments)) {
+        localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(data.appointments));
+      }
+      if (data.inquiries && Array.isArray(data.inquiries)) {
+        localStorage.setItem(INQUIRIES_KEY, JSON.stringify(data.inquiries));
+      }
+      await delay(500);
+      return true;
+    } catch (e) {
+      console.error("Failed to restore backup", e);
+      return false;
+    }
+  },
+
   resetDatabase: async () => {
     localStorage.removeItem(APPOINTMENTS_KEY);
     localStorage.removeItem(INQUIRIES_KEY);
