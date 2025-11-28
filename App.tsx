@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -15,7 +16,7 @@ import { ArrowRight, Star, Calendar, ChevronDown, ChevronLeft, ChevronRight, Fil
 import { ServiceInfo, BlogPost, ServiceCategory, BookingFormData, Appointment, AppointmentStatus, Inquiry } from './types';
 import { servicesData } from './data/services';
 import { blogPostsData } from './data/blogPosts';
-import { mockAppointments, mockInquiries } from './data/mockAdminData';
+import { backend } from './services/backend';
 
 const App: React.FC = () => {
   // Navigation State
@@ -49,9 +50,30 @@ const App: React.FC = () => {
   // Hero Slider State
   const [currentHeroSlide, setCurrentHeroSlide] = useState(0);
 
-  // --- Admin / Data State ---
-  const [appointments, setAppointments] = useState<Appointment[]>(mockAppointments);
-  const [inquiries, setInquiries] = useState<Inquiry[]>(mockInquiries);
+  // --- Admin / Data State (Now Fetched from Backend) ---
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+
+  // Fetch Data on Load
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [fetchedAppts, fetchedInquiries] = await Promise.all([
+          backend.getAppointments(),
+          backend.getInquiries()
+        ]);
+        setAppointments(fetchedAppts);
+        setInquiries(fetchedInquiries);
+      } catch (error) {
+        console.error("Failed to load data:", error);
+        showToast("Failed to load backend data", "error");
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const displayedBlogPosts = blogPostsData.slice(0, visibleBlogCount);
   const hasMorePosts = visibleBlogCount < blogPostsData.length;
@@ -150,7 +172,7 @@ const App: React.FC = () => {
     setCurrentPage('login');
   };
 
-  const handleNewBooking = (formData: BookingFormData) => {
+  const handleNewBooking = async (formData: BookingFormData) => {
     const newAppointment: Appointment = {
       id: `APT-${Date.now().toString().slice(-4)}`,
       clientName: formData.name,
@@ -162,17 +184,24 @@ const App: React.FC = () => {
       status: 'Pending',
       notes: formData.concern
     };
-    // Add new appointment to the top of the list
+    
+    // Save to backend
+    await backend.addAppointment(newAppointment);
+    
+    // Update local state to reflect change immediately
     setAppointments(prev => [newAppointment, ...prev]);
   };
 
-  const handleUpdateAppointmentStatus = (id: string, status: AppointmentStatus) => {
+  const handleUpdateAppointmentStatus = async (id: string, status: AppointmentStatus) => {
+    // Optimistic UI update
     setAppointments(prev => prev.map(apt => 
       apt.id === id ? { ...apt, status } : apt
     ));
+    // Persist to backend
+    await backend.updateAppointmentStatus(id, status);
   };
 
-  const handleNewInquiry = (data: { name: string; email: string; phone: string; message: string }) => {
+  const handleNewInquiry = async (data: { name: string; email: string; phone: string; message: string }) => {
     const newInquiry: Inquiry = {
       id: `INQ-${Date.now().toString().slice(-4)}`,
       name: data.name,
@@ -182,13 +211,22 @@ const App: React.FC = () => {
       date: new Date().toISOString().split('T')[0],
       read: false
     };
+    
+    // Save to backend
+    await backend.addInquiry(newInquiry);
+    
+    // Update local state
     setInquiries(prev => [newInquiry, ...prev]);
     showToast('Inquiry sent! We will contact you shortly.', 'success');
   };
 
-  const handleMarkInquiryRead = (id: string) => {
+  const handleMarkInquiryRead = async (id: string) => {
+    // Optimistic UI Update
     setInquiries(prev => prev.map(inq => inq.id === id ? { ...inq, read: true } : inq));
     showToast('Inquiry marked as read', 'success');
+    
+    // Persist
+    await backend.markInquiryRead(id);
   };
 
   // Hero Slides Data
