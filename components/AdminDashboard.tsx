@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, Calendar as CalendarIcon, MessageSquare, LogOut, 
   CheckCircle, XCircle, Clock, Search, MoreHorizontal, User, Mail, Phone, ChevronRight, ChevronLeft,
   Filter, ChevronUp, ChevronDown, ArrowUpDown, AlertTriangle, CheckSquare, ExternalLink, History, Users, Eye, FileText,
-  BarChart3, TrendingUp, DollarSign, PieChart, Trash2, RotateCcw, Menu, X, Database, Download, Upload, Lock, Settings, AlertOctagon, Briefcase, Plus, Edit
+  BarChart3, TrendingUp, DollarSign, PieChart, Trash2, RotateCcw, Menu, X, Database, Download, Upload, Lock, Settings, AlertOctagon, Briefcase, Plus, Edit, Send
 } from 'lucide-react';
 import { Appointment, Inquiry, AppointmentStatus, InquiryStatus, ServiceInfo, ServiceCategory } from '../types';
 import { servicesData } from '../data/services';
@@ -18,6 +19,9 @@ interface AdminDashboardProps {
   onBulkStatusChange: (ids: string[], status: AppointmentStatus) => void;
   onMarkInquiryRead: (id: string) => void;
   onInquiryStatusChange: (id: string, status: InquiryStatus) => void;
+  onDeleteInquiry: (id: string) => void;
+  onBulkInquiryDelete: (ids: string[]) => void;
+  onBulkInquiryMarkRead: (ids: string[]) => void;
   onToggleServiceAvailability: (id: string, isAvailable: boolean) => void;
   onAddService: (service: ServiceInfo) => void;
   onUpdateService: (service: ServiceInfo) => void;
@@ -41,6 +45,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBulkStatusChange,
   onMarkInquiryRead, 
   onInquiryStatusChange,
+  onDeleteInquiry,
+  onBulkInquiryDelete,
+  onBulkInquiryMarkRead,
   onToggleServiceAvailability,
   onAddService,
   onUpdateService,
@@ -64,6 +71,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   // Tab State for Status
   const [activeStatusTab, setActiveStatusTab] = useState<AppointmentStatus | 'All'>('All');
+  const [activeInquiryStatus, setActiveInquiryStatus] = useState<InquiryStatus | 'All'>('All');
 
   const [filterService, setFilterService] = useState<string>('All');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -82,6 +90,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [currentServicePage, setCurrentServicePage] = useState(1);
   const [servicesPerPage, setServicesPerPage] = useState(5);
 
+  // Pagination State - Inquiries
+  const [currentInquiryPage, setCurrentInquiryPage] = useState(1);
+  const [inquiriesPerPage, setInquiriesPerPage] = useState(5);
+
   // Calendar State
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | null>(null);
@@ -98,7 +110,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Confirmation Dialog State
   const [confirmationAction, setConfirmationAction] = useState<{
     isOpen: boolean;
-    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | 'BulkEnableServices' | 'BulkDisableServices' | 'BulkDeleteServices' | null;
+    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | 'BulkEnableServices' | 'BulkDisableServices' | 'BulkDeleteServices' | 'DeleteInquiry' | 'BulkDeleteInquiries' | null;
     appointmentId: string | null;
   }>({ isOpen: false, type: null, appointmentId: null });
 
@@ -155,13 +167,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     setCurrentPage(1);
     setCurrentServicePage(1);
+    setCurrentInquiryPage(1);
     setSelectedIds(new Set()); 
     setIsBulkDropdownOpen(false);
-  }, [searchTerm, activeStatusTab, filterService, dateRange]);
+  }, [searchTerm, activeStatusTab, activeInquiryStatus, filterService, dateRange]);
 
   // Close sidebar when tab changes on mobile
   useEffect(() => {
     setIsSidebarOpen(false);
+    // Also clear selections on tab change to prevent mixing IDs
     setSelectedIds(new Set());
     setIsBulkDropdownOpen(false);
   }, [activeTab]);
@@ -220,6 +234,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     currentServicePage * servicesPerPage
   );
 
+  // Pagination Logic - Inquiries
+  const filteredInquiries = inquiries.filter(inq => {
+     const matchesSearch = inq.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                           inq.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           inq.message.toLowerCase().includes(searchTerm.toLowerCase());
+     const matchesStatus = activeInquiryStatus === 'All' || inq.status === activeInquiryStatus;
+     
+     return matchesSearch && matchesStatus;
+  });
+
+  const totalInquiryPages = Math.ceil(filteredInquiries.length / inquiriesPerPage);
+  const paginatedInquiries = filteredInquiries.slice(
+    (currentInquiryPage - 1) * inquiriesPerPage,
+    currentInquiryPage * inquiriesPerPage
+  );
+
   // Bulk Selection Logic
   const handleSelectAll = () => {
     if (activeTab === 'appointments') {
@@ -242,6 +272,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         } else {
             const newSelected = new Set(selectedIds);
             paginatedServices.forEach(s => newSelected.add(s.id));
+            setSelectedIds(newSelected);
+        }
+    } else if (activeTab === 'inquiries') {
+        if (paginatedInquiries.length > 0 && paginatedInquiries.every(i => selectedIds.has(i.id))) {
+            const newSelected = new Set(selectedIds);
+            paginatedInquiries.forEach(i => newSelected.delete(i.id));
+            setSelectedIds(newSelected);
+        } else {
+            const newSelected = new Set(selectedIds);
+            paginatedInquiries.forEach(i => newSelected.add(i.id));
             setSelectedIds(newSelected);
         }
     }
@@ -498,7 +538,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Action Handlers
-  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | 'BulkEnableServices' | 'BulkDisableServices' | 'BulkDeleteServices') => {
+  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | 'BulkEnableServices' | 'BulkDisableServices' | 'BulkDeleteServices' | 'DeleteInquiry' | 'BulkDeleteInquiries') => {
     setConfirmationAction({ isOpen: true, type, appointmentId: id });
   };
 
@@ -519,6 +559,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
          onDeleteService(confirmationAction.appointmentId);
          message = 'Service deleted successfully';
       }
+      else if (confirmationAction.type === 'DeleteInquiry' && confirmationAction.appointmentId) {
+         onDeleteInquiry(confirmationAction.appointmentId);
+         message = 'Inquiry deleted successfully';
+      }
       else if (confirmationAction.type.startsWith('Bulk')) {
          const ids = Array.from(selectedIds);
          
@@ -531,6 +575,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
          } else if (confirmationAction.type === 'BulkDeleteServices') {
              onBulkServiceDelete(ids);
              message = `${ids.length} services deleted.`;
+         } else if (confirmationAction.type === 'BulkDeleteInquiries') {
+             onBulkInquiryDelete(ids);
+             message = `${ids.length} inquiries deleted.`;
          } else {
              let newStatus: AppointmentStatus = 'Pending';
              if (confirmationAction.type === 'BulkTrash') newStatus = 'Trash';
@@ -550,10 +597,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               case 'Trash': newStatus = 'Trash'; message = 'Moved to Trash'; toastType = 'error'; break;
               case 'Restore': newStatus = 'Pending'; message = 'Restored to Pending'; break;
           }
-          onStatusChange(confirmationAction.appointmentId, newStatus);
+          if (confirmationAction.type !== 'DeleteService' && confirmationAction.type !== 'DeleteInquiry') {
+             onStatusChange(confirmationAction.appointmentId, newStatus);
+          }
       }
 
-      if (confirmationAction.type !== 'ResetDatabase' && confirmationAction.type !== 'DeleteService') showToast(message, toastType);
+      if (confirmationAction.type !== 'ResetDatabase' && confirmationAction.type !== 'DeleteService' && confirmationAction.type !== 'DeleteInquiry') showToast(message, toastType);
       closeConfirmation();
       setViewAppointment(null);
     }
@@ -1114,52 +1163,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                )}
              </div>
 
-             {/* Mobile Card View */}
-             <div className="md:hidden overflow-y-auto flex-1 p-4 space-y-4">
-                {paginatedAppointments.map(apt => (
-                   <div key={apt.id} className={`bg-white rounded-lg border border-gray-200 shadow-sm p-4 relative ${selectedIds.has(apt.id) ? 'ring-2 ring-gold-500 bg-gold-50/20' : ''}`}>
-                      <div className="absolute top-4 right-4">
-                         <span className={`px-2 py-1 rounded-full text-xs font-bold border ${getStatusBadge(apt.status)}`}>
-                           {apt.status}
-                         </span>
-                      </div>
-                      <div className="flex items-start gap-3 mb-3">
-                         <input 
-                            type="checkbox" 
-                            checked={selectedIds.has(apt.id)}
-                            onChange={() => handleSelectOne(apt.id)}
-                            className="mt-1 w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
-                         />
-                         <div>
-                            <h4 className="font-bold text-gray-900">{apt.clientName}</h4>
-                            <p className="text-xs text-gray-500">{apt.id}</p>
-                         </div>
-                      </div>
-                      <div className="space-y-2 text-sm text-gray-600 mb-4">
-                         <div className="flex items-center gap-2">
-                            <Briefcase size={14} className="text-gold-600"/> 
-                            <span className="font-medium">{apt.service}</span>
-                         </div>
-                         <div className="flex items-center gap-2">
-                            <Clock size={14} className="text-gold-600"/> 
-                            {new Date(apt.date).toLocaleDateString()} • {apt.time}
-                         </div>
-                      </div>
-                      <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
-                         <button onClick={() => setViewAppointment(apt)} className="p-2 bg-gray-100 rounded text-gray-600"><Eye size={16}/></button>
-                         {apt.status === 'Confirmed' && (
-                            <button onClick={() => openConfirmation(apt.id, 'Complete')} className="p-2 bg-blue-100 text-blue-600 rounded"><CheckSquare size={16}/></button>
-                         )}
-                         {(apt.status === 'Pending' || apt.status === 'Confirmed') && (
-                            <button onClick={() => openConfirmation(apt.id, 'Cancel')} className="p-2 bg-red-100 text-red-600 rounded"><XCircle size={16}/></button>
-                         )}
-                      </div>
-                   </div>
-                ))}
-             </div>
-
-             {/* Desktop Table View */}
-             <div className="hidden md:block overflow-x-auto flex-1">
+             <div className="overflow-x-auto flex-1">
                <table className="w-full text-left border-collapse min-w-[800px]">
                  <thead>
                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
@@ -1457,21 +1461,95 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* INQUIRIES TAB */}
         {activeTab === 'inquiries' && (
-           <div className="bg-white rounded-xl shadow-sm border border-gray-100 animate-fade-in pb-10">
-              <div className="divide-y divide-gray-100">
-                {inquiries.length > 0 ? inquiries.map(inq => (
-                  <div key={inq.id} className={`p-4 md:p-6 hover:bg-gray-50 transition-colors ${!inq.read ? 'bg-blue-50/30' : ''}`}>
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center gap-3">
-                        {!inq.read && <span className="w-2 h-2 bg-blue-500 rounded-full shrink-0"></span>}
-                        <h3 className="font-bold text-gray-900">{inq.name}</h3>
-                        <span className="text-gray-400 text-xs border border-gray-200 px-2 py-0.5 rounded whitespace-nowrap">{inq.date}</span>
+           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in flex flex-col h-[calc(100vh-140px)]">
+              {/* Toolbar */}
+              <div className="p-4 md:p-6 border-b border-gray-100 space-y-4 flex-shrink-0">
+                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        {/* Bulk Actions Dropdown */}
+                        {selectedIds.size > 0 && (
+                           <div className="relative animate-fade-in z-20">
+                              <button 
+                                onClick={() => setIsBulkDropdownOpen(!isBulkDropdownOpen)}
+                                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                              >
+                                Bulk Actions ({selectedIds.size})
+                                <ChevronDown size={14} />
+                              </button>
+                              {isBulkDropdownOpen && (
+                                <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in z-30">
+                                   <button onClick={() => { openConfirmation(null, 'BulkDeleteInquiries'); setIsBulkDropdownOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-500 flex items-center gap-2"><Trash2 size={16}/> Delete Selected</button>
+                                </div>
+                              )}
+                           </div>
+                        )}
+                        <div className="relative w-full md:w-96">
+                           <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+                           <input 
+                             type="text" 
+                             placeholder="Search name, email or message..." 
+                             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500"
+                             value={searchTerm}
+                             onChange={(e) => setSearchTerm(e.target.value)}
+                           />
+                        </div>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto items-center">
+                       <label className="text-xs font-bold text-gray-500 uppercase mr-2">Filter:</label>
+                       <select 
+                          value={activeInquiryStatus}
+                          onChange={(e) => setActiveInquiryStatus(e.target.value as any)}
+                          className="px-3 py-2 rounded-lg text-sm bg-gray-100 border-none outline-none focus:ring-2 focus:ring-gold-500 cursor-pointer"
+                       >
+                          <option value="All">All Statuses</option>
+                          <option value="New">New</option>
+                          <option value="Contacted">Contacted</option>
+                          <option value="Follow-up Needed">Follow-up Needed</option>
+                          <option value="Resolved">Resolved</option>
+                       </select>
+                    </div>
+                 </div>
+              </div>
+
+              {/* Inquiry List */}
+              <div className="overflow-y-auto flex-1 p-4 md:p-6 space-y-4">
+                <div className="flex items-center gap-2 mb-2 px-2">
+                   <input 
+                      type="checkbox" 
+                      onChange={handleSelectAll}
+                      checked={paginatedInquiries.length > 0 && paginatedInquiries.every(i => selectedIds.has(i.id))}
+                      className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                   />
+                   <span className="text-xs text-gray-500 font-bold uppercase">Select All</span>
+                </div>
+
+                {paginatedInquiries.length > 0 ? paginatedInquiries.map(inq => (
+                  <div key={inq.id} className={`p-4 md:p-6 bg-white border rounded-xl shadow-sm hover:shadow-md transition-all ${selectedIds.has(inq.id) ? 'border-gold-400 bg-gold-50/10' : 'border-gray-100'} ${!inq.read ? 'border-l-4 border-l-blue-500' : ''}`}>
+                    <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-3">
+                      <div className="flex items-start gap-3 w-full">
+                        <input 
+                            type="checkbox" 
+                            checked={selectedIds.has(inq.id)}
+                            onChange={() => handleSelectOne(inq.id)}
+                            className="mt-1 w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                        />
+                        <div className="flex-1">
+                           <div className="flex items-center gap-2 flex-wrap mb-1">
+                              {!inq.read && <span className="w-2 h-2 bg-blue-500 rounded-full shrink-0" title="Unread"></span>}
+                              <h3 className="font-bold text-gray-900 text-lg">{inq.name}</h3>
+                              <span className="text-gray-400 text-xs border border-gray-200 px-2 py-0.5 rounded whitespace-nowrap">{inq.date}</span>
+                           </div>
+                           <div className="text-sm text-gray-500 flex flex-col md:flex-row md:gap-4">
+                              <span className="flex items-center gap-1"><Mail size={12}/> {inq.email}</span>
+                              <span className="flex items-center gap-1"><Phone size={12}/> {inq.phone}</span>
+                           </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                          <select
                             value={inq.status || 'New'}
                             onChange={(e) => onInquiryStatusChange(inq.id, e.target.value as InquiryStatus)}
-                            className={`text-xs font-bold border rounded px-2 py-1 outline-none cursor-pointer ${
+                            className={`text-xs font-bold border rounded px-2 py-1 outline-none cursor-pointer transition-colors ${
                                inq.status === 'Resolved' ? 'bg-green-100 text-green-700 border-green-200' :
                                inq.status === 'Contacted' ? 'bg-blue-100 text-blue-700 border-blue-200' :
                                inq.status === 'Follow-up Needed' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
@@ -1483,20 +1561,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <option value="Follow-up Needed">Follow-up Needed</option>
                             <option value="Resolved">Resolved</option>
                          </select>
-                         <button className="text-gray-400 hover:text-gold-600">
-                           <ChevronRight size={20} />
+                         <button 
+                            onClick={() => openConfirmation(inq.id, 'DeleteInquiry')}
+                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Delete Inquiry"
+                         >
+                           <Trash2 size={18} />
                          </button>
                       </div>
                     </div>
-                    <div className="text-sm text-gray-500 mb-2 flex flex-col md:flex-row md:gap-4">
-                      <span>{inq.email}</span>
-                      <span>{inq.phone}</span>
-                    </div>
-                    <p className="text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-lg border border-gray-100">
+                    
+                    <p className="text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-lg border border-gray-100 ml-7 text-sm">
                       "{inq.message}"
                     </p>
-                    <div className="mt-3 flex gap-2">
-                      <button className="px-3 py-1.5 bg-black text-white text-xs font-bold rounded hover:bg-gold-600 transition-colors">Reply via Email</button>
+                    
+                    <div className="mt-3 flex gap-2 ml-7">
+                      <a 
+                        href={`mailto:${inq.email}?subject=Re: Inquiry for Optimum Skin`}
+                        className="px-3 py-1.5 bg-black text-white text-xs font-bold rounded hover:bg-gold-600 transition-colors flex items-center gap-2"
+                      >
+                        <Send size={12} /> Reply via Email
+                      </a>
                       {!inq.read && (
                         <button 
                           onClick={() => onMarkInquiryRead(inq.id)}
@@ -1508,9 +1593,50 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                   </div>
                 )) : (
-                  <div className="p-8 text-center text-gray-500">No inquiries found.</div>
+                  <div className="p-8 text-center text-gray-500">No inquiries found matching your filters.</div>
                 )}
               </div>
+
+              {/* Inquiry Pagination */}
+              <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50 flex-shrink-0">
+               <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <span className="hidden md:inline">Rows per page:</span>
+                  <select 
+                    value={inquiriesPerPage}
+                    onChange={(e) => {
+                      setInquiriesPerPage(Number(e.target.value));
+                      setCurrentInquiryPage(1);
+                    }}
+                    className="border border-gray-300 rounded p-1 outline-none text-sm"
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                  </select>
+                  <span className="ml-2">
+                    {paginatedInquiries.length > 0 
+                      ? `${(currentInquiryPage - 1) * inquiriesPerPage + 1}-${Math.min(currentInquiryPage * inquiriesPerPage, filteredInquiries.length)} of ${filteredInquiries.length}`
+                      : '0 of 0'
+                    }
+                  </span>
+               </div>
+               <div className="flex gap-2">
+                  <button 
+                    onClick={() => setCurrentInquiryPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentInquiryPage === 1}
+                    className="p-2 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button 
+                    onClick={() => setCurrentInquiryPage(prev => Math.min(prev + 1, totalInquiryPages))}
+                    disabled={currentInquiryPage === totalInquiryPages || totalInquiryPages === 0}
+                    className="p-2 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+               </div>
+             </div>
            </div>
         )}
 
@@ -2019,8 +2145,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
              <div className="flex flex-col items-center text-center">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
                   confirmationAction.type?.includes('Confirm') ? 'bg-green-100 text-green-600' :
-                  confirmationAction.type?.includes('Cancel') ? 'bg-red-100 text-red-600' :
-                  confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' ? 'bg-gray-100 text-gray-600' :
+                  confirmationAction.type?.includes('Cancel') || confirmationAction.type?.includes('Delete') ? 'bg-red-100 text-red-600' :
+                  confirmationAction.type?.includes('Trash') ? 'bg-gray-100 text-gray-600' :
                   confirmationAction.type === 'Restore' ? 'bg-gold-100 text-gold-600' :
                   confirmationAction.type === 'ResetDatabase' ? 'bg-red-100 text-red-600' :
                   'bg-blue-100 text-blue-600'
@@ -2038,22 +2164,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {confirmationAction.type === 'BulkComplete' && 'Complete Selected Items'}
                   {confirmationAction.type === 'ResetDatabase' && 'Reset System Database?'}
                   {confirmationAction.type === 'DeleteService' && 'Delete Service?'}
+                  {confirmationAction.type === 'DeleteInquiry' && 'Delete Inquiry?'}
                   {confirmationAction.type === 'BulkEnableServices' && 'Enable Selected Services'}
                   {confirmationAction.type === 'BulkDisableServices' && 'Disable Selected Services'}
                   {confirmationAction.type === 'BulkDeleteServices' && 'Delete Selected Services'}
+                  {confirmationAction.type === 'BulkDeleteInquiries' && 'Delete Selected Inquiries'}
                 </h3>
                 <p className="text-gray-500 text-sm mb-6">
                   {confirmationAction.type === 'ResetDatabase'
                     ? 'WARNING: This will delete ALL current appointments and inquiries and reset the system to its initial state. Are you absolutely sure?' 
                     : confirmationAction.type?.includes('Trash')
                     ? 'Are you sure you want to remove these items? You can restore them later.' 
-                    : confirmationAction.type === 'DeleteService' || confirmationAction.type === 'BulkDeleteServices'
-                    ? 'This will permanently remove the service(s) from your list.'
+                    : confirmationAction.type?.includes('Delete')
+                    ? 'This will permanently remove the item(s) from your list.'
                     : confirmationAction.type === 'Restore' 
                     ? 'This appointment will be moved back to Pending status.'
                     : confirmationAction.type?.startsWith('Bulk')
                     ? `Are you sure you want to update ${selectedIds.size} selected items?`
-                    : `Are you sure you want to ${confirmationAction.type?.toLowerCase()} this appointment?`}
+                    : `Are you sure you want to ${confirmationAction.type?.toLowerCase()} this item?`}
                   
                   {confirmationAction.type?.includes('Cancel') && ' This action cannot be easily undone.'}
                   {confirmationAction.type?.includes('Complete') && ' This will mark the service as finished.'}
@@ -2069,14 +2197,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                      onClick={handleConfirmAction}
                      className={`flex-1 py-2.5 rounded-lg text-white font-medium shadow-md transition-colors ${
                        confirmationAction.type?.includes('Confirm') ? 'bg-green-600 hover:bg-green-700' :
-                       confirmationAction.type?.includes('Cancel') ? 'bg-red-600 hover:bg-red-700' :
-                       confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' || confirmationAction.type === 'BulkDeleteServices' ? 'bg-gray-600 hover:bg-gray-700' :
+                       confirmationAction.type?.includes('Cancel') || confirmationAction.type?.includes('Delete') ? 'bg-red-600 hover:bg-red-700' :
+                       confirmationAction.type?.includes('Trash') ? 'bg-gray-600 hover:bg-gray-700' :
                        confirmationAction.type === 'Restore' ? 'bg-gold-600 hover:bg-gold-700' :
                        confirmationAction.type === 'ResetDatabase' ? 'bg-red-600 hover:bg-red-700' :
                        'bg-blue-600 hover:bg-blue-700'
                      }`}
                    >
-                     {confirmationAction.type === 'ResetDatabase' ? 'Yes, Delete All' : 'Yes, Confirm'}
+                     {confirmationAction.type === 'ResetDatabase' || confirmationAction.type?.includes('Delete') ? 'Yes, Delete' : 'Yes, Confirm'}
                    </button>
                 </div>
              </div>

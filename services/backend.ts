@@ -81,10 +81,31 @@ export const backend = {
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 
+  markMultipleInquiriesRead: async (ids: string[]): Promise<void> => {
+    await delay(300);
+    const inquiries = await backend.getInquiries();
+    const updated = inquiries.map(i => ids.includes(i.id) ? { ...i, read: true } : i);
+    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
+  },
+
   updateInquiryStatus: async (id: string, status: InquiryStatus): Promise<void> => {
     await delay(200);
     const inquiries = await backend.getInquiries();
     const updated = inquiries.map(i => i.id === id ? { ...i, status } : i);
+    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
+  },
+
+  deleteInquiry: async (id: string): Promise<void> => {
+    await delay(300);
+    const inquiries = await backend.getInquiries();
+    const updated = inquiries.filter(i => i.id !== id);
+    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
+  },
+
+  deleteMultipleInquiries: async (ids: string[]): Promise<void> => {
+    await delay(400);
+    const inquiries = await backend.getInquiries();
+    const updated = inquiries.filter(i => !ids.includes(i.id));
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 

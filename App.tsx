@@ -238,8 +238,6 @@ const App: React.FC = () => {
   const handleMarkInquiryRead = async (id: string) => {
     // Optimistic UI Update
     setInquiries(prev => prev.map(inq => inq.id === id ? { ...inq, read: true } : inq));
-    showToast('Inquiry marked as read', 'success');
-    
     // Persist
     await backend.markInquiryRead(id);
   };
@@ -249,6 +247,24 @@ const App: React.FC = () => {
     await backend.updateInquiryStatus(id, status);
     showToast(`Inquiry status updated to ${status}`, 'success');
   }
+
+  const handleDeleteInquiry = async (id: string) => {
+    setInquiries(prev => prev.filter(inq => inq.id !== id));
+    await backend.deleteInquiry(id);
+    showToast('Inquiry deleted.', 'success');
+  };
+
+  const handleBulkInquiryDelete = async (ids: string[]) => {
+    setInquiries(prev => prev.filter(inq => !ids.includes(inq.id)));
+    await backend.deleteMultipleInquiries(ids);
+    showToast(`${ids.length} inquiries deleted.`, 'success');
+  };
+
+  const handleBulkInquiryMarkRead = async (ids: string[]) => {
+    setInquiries(prev => prev.map(inq => ids.includes(inq.id) ? { ...inq, read: true } : inq));
+    await backend.markMultipleInquiriesRead(ids);
+    showToast(`${ids.length} inquiries marked as read.`, 'success');
+  };
 
   // --- Service Management Handlers ---
   const handleToggleServiceAvailability = async (id: string, isAvailable: boolean) => {
@@ -389,6 +405,9 @@ const App: React.FC = () => {
           onBulkStatusChange={handleBulkStatusChange}
           onMarkInquiryRead={handleMarkInquiryRead}
           onInquiryStatusChange={handleUpdateInquiryStatus}
+          onDeleteInquiry={handleDeleteInquiry}
+          onBulkInquiryDelete={handleBulkInquiryDelete}
+          onBulkInquiryMarkRead={handleBulkInquiryMarkRead}
           onToggleServiceAvailability={handleToggleServiceAvailability}
           onAddService={handleAddService}
           onUpdateService={handleUpdateService}
