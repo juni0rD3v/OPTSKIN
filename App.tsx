@@ -250,10 +250,41 @@ const App: React.FC = () => {
     showToast(`Inquiry status updated to ${status}`, 'success');
   }
 
+  // --- Service Management Handlers ---
   const handleToggleServiceAvailability = async (id: string, isAvailable: boolean) => {
     setServices(prev => prev.map(s => s.id === id ? { ...s, available: isAvailable } : s));
     await backend.toggleServiceAvailability(id, isAvailable);
     showToast(`Service is now ${isAvailable ? 'available' : 'unavailable'}`, 'info');
+  };
+
+  const handleAddService = async (service: ServiceInfo) => {
+    setServices(prev => [service, ...prev]);
+    await backend.addService(service);
+    showToast('Service added successfully.', 'success');
+  };
+
+  const handleUpdateService = async (updatedService: ServiceInfo) => {
+    setServices(prev => prev.map(s => s.id === updatedService.id ? updatedService : s));
+    await backend.updateService(updatedService);
+    showToast('Service updated successfully.', 'success');
+  };
+
+  const handleDeleteService = async (id: string) => {
+    setServices(prev => prev.filter(s => s.id !== id));
+    await backend.deleteService(id);
+    showToast('Service deleted.', 'success');
+  };
+
+  const handleBulkServiceToggle = async (ids: string[], isAvailable: boolean) => {
+    setServices(prev => prev.map(s => ids.includes(s.id) ? { ...s, available: isAvailable } : s));
+    await backend.toggleMultipleServicesAvailability(ids, isAvailable);
+    showToast(`${ids.length} services ${isAvailable ? 'enabled' : 'disabled'}.`, 'success');
+  };
+
+  const handleBulkServiceDelete = async (ids: string[]) => {
+    setServices(prev => prev.filter(s => !ids.includes(s.id)));
+    await backend.deleteMultipleServices(ids);
+    showToast(`${ids.length} services deleted.`, 'success');
   };
 
   const handleDownloadBackup = async () => {
@@ -359,6 +390,11 @@ const App: React.FC = () => {
           onMarkInquiryRead={handleMarkInquiryRead}
           onInquiryStatusChange={handleUpdateInquiryStatus}
           onToggleServiceAvailability={handleToggleServiceAvailability}
+          onAddService={handleAddService}
+          onUpdateService={handleUpdateService}
+          onDeleteService={handleDeleteService}
+          onBulkServiceToggle={handleBulkServiceToggle}
+          onBulkServiceDelete={handleBulkServiceDelete}
           showToast={showToast}
           onViewSite={() => setCurrentPage('home')}
           onDownloadBackup={handleDownloadBackup}

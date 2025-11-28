@@ -23,6 +23,8 @@ interface AdminDashboardProps {
   onAddService: (service: ServiceInfo) => void;
   onUpdateService: (service: ServiceInfo) => void;
   onDeleteService: (id: string) => void;
+  onBulkServiceToggle: (ids: string[], isAvailable: boolean) => void;
+  onBulkServiceDelete: (ids: string[]) => void;
   showToast: (message: string, type: ToastType) => void;
   onViewSite: () => void;
   onDownloadBackup: () => void;
@@ -44,6 +46,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddService,
   onUpdateService,
   onDeleteService,
+  onBulkServiceToggle,
+  onBulkServiceDelete,
   showToast, 
   onViewSite,
   onDownloadBackup,
@@ -91,7 +95,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Confirmation Dialog State
   const [confirmationAction, setConfirmationAction] = useState<{
     isOpen: boolean;
-    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | null;
+    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | 'BulkEnableServices' | 'BulkDisableServices' | 'BulkDeleteServices' | null;
     appointmentId: string | null;
   }>({ isOpen: false, type: null, appointmentId: null });
 
@@ -154,6 +158,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Close sidebar when tab changes on mobile
   useEffect(() => {
     setIsSidebarOpen(false);
+    // Also clear selections on tab change to prevent mixing appointments/services IDs
+    setSelectedIds(new Set());
+    setIsBulkDropdownOpen(false);
   }, [activeTab]);
 
   // Extract unique services for filter dropdown
@@ -200,16 +207,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Bulk Selection Logic
   const handleSelectAll = () => {
-    if (paginatedAppointments.length > 0 && paginatedAppointments.every(a => selectedIds.has(a.id))) {
-      // Deselect all on current page
-      const newSelected = new Set(selectedIds);
-      paginatedAppointments.forEach(a => newSelected.delete(a.id));
-      setSelectedIds(newSelected);
-    } else {
-      // Select all on current page
-      const newSelected = new Set(selectedIds);
-      paginatedAppointments.forEach(a => newSelected.add(a.id));
-      setSelectedIds(newSelected);
+    if (activeTab === 'appointments') {
+        if (paginatedAppointments.length > 0 && paginatedAppointments.every(a => selectedIds.has(a.id))) {
+          // Deselect all on current page
+          const newSelected = new Set(selectedIds);
+          paginatedAppointments.forEach(a => newSelected.delete(a.id));
+          setSelectedIds(newSelected);
+        } else {
+          // Select all on current page
+          const newSelected = new Set(selectedIds);
+          paginatedAppointments.forEach(a => newSelected.add(a.id));
+          setSelectedIds(newSelected);
+        }
+    } else if (activeTab === 'services') {
+        const filteredServices = services.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()));
+        if (filteredServices.length > 0 && filteredServices.every(s => selectedIds.has(s.id))) {
+            const newSelected = new Set(selectedIds);
+            filteredServices.forEach(s => newSelected.delete(s.id));
+            setSelectedIds(newSelected);
+        } else {
+            const newSelected = new Set(selectedIds);
+            filteredServices.forEach(s => newSelected.add(s.id));
+            setSelectedIds(newSelected);
+        }
     }
   };
 
@@ -452,7 +472,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Action Handlers
-  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService') => {
+  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | 'DeleteService' | 'BulkEnableServices' | 'BulkDisableServices' | 'BulkDeleteServices') => {
     setConfirmationAction({ isOpen: true, type, appointmentId: id });
   };
 
@@ -475,13 +495,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       else if (confirmationAction.type.startsWith('Bulk')) {
          const ids = Array.from(selectedIds);
-         let newStatus: AppointmentStatus = 'Pending';
-         if (confirmationAction.type === 'BulkTrash') newStatus = 'Trash';
-         if (confirmationAction.type === 'BulkCancel') newStatus = 'Cancelled';
-         if (confirmationAction.type === 'BulkComplete') newStatus = 'Completed';
          
-         onBulkStatusChange(ids, newStatus);
-         message = `${ids.length} items updated.`;
+         if (confirmationAction.type === 'BulkEnableServices') {
+             onBulkServiceToggle(ids, true);
+             message = `${ids.length} services enabled.`;
+         } else if (confirmationAction.type === 'BulkDisableServices') {
+             onBulkServiceToggle(ids, false);
+             message = `${ids.length} services disabled.`;
+         } else if (confirmationAction.type === 'BulkDeleteServices') {
+             onBulkServiceDelete(ids);
+             message = `${ids.length} services deleted.`;
+         } else {
+             let newStatus: AppointmentStatus = 'Pending';
+             if (confirmationAction.type === 'BulkTrash') newStatus = 'Trash';
+             if (confirmationAction.type === 'BulkCancel') newStatus = 'Cancelled';
+             if (confirmationAction.type === 'BulkComplete') newStatus = 'Completed';
+             
+             onBulkStatusChange(ids, newStatus);
+             message = `${ids.length} items updated.`;
+         }
          setSelectedIds(new Set()); 
       } else if (confirmationAction.appointmentId) {
           let newStatus: AppointmentStatus = 'Pending';
@@ -645,6 +677,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                activeTab === 'clients' ? 'Client Directory' :
                activeTab === 'reports' ? 'Analytics & Reports' :
                activeTab === 'settings' ? 'System Settings' :
+               activeTab === 'services' ? 'Services Management' : 
                activeTab}
             </h1>
           </div>
@@ -662,7 +695,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </header>
 
-        {/* Views */}
+        {/* ... (Overview, Calendar, Appointments, Clients, Inquiries, Reports logic identical to previous file, omitted for brevity but included in output if requested full file) ... */}
+        {/* I am including the full code to be safe and ensure functionality is unbroken */}
+        
         {activeTab === 'overview' && (
           <div className="space-y-8 animate-fade-in pb-10">
             {/* Stats Cards */}
@@ -1452,7 +1487,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <h2 className="text-lg font-bold text-gray-900">Services Management</h2>
                     <p className="text-sm text-gray-500">Toggle availability of clinic services.</p>
                  </div>
-                 <div className="flex gap-3">
+                 
+                 {/* Bulk Actions & Search Toolbar */}
+                 <div className="flex gap-3 items-center">
+                    {selectedIds.size > 0 && (
+                       <div className="relative animate-fade-in z-20">
+                          <button 
+                            onClick={() => setIsBulkDropdownOpen(!isBulkDropdownOpen)}
+                            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                          >
+                            Bulk Actions ({selectedIds.size})
+                            <ChevronDown size={14} />
+                          </button>
+                          
+                          {isBulkDropdownOpen && (
+                            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in">
+                               <button 
+                                 onClick={() => { openConfirmation(null, 'BulkEnableServices'); setIsBulkDropdownOpen(false); }}
+                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-green-50 hover:text-green-600 flex items-center gap-2 transition-colors"
+                               >
+                                 <CheckCircle size={16} /> Enable Selected
+                               </button>
+                               <button 
+                                 onClick={() => { openConfirmation(null, 'BulkDisableServices'); setIsBulkDropdownOpen(false); }}
+                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 flex items-center gap-2 transition-colors border-t border-gray-50"
+                               >
+                                 <XCircle size={16} /> Disable Selected
+                               </button>
+                               <button 
+                                 onClick={() => { openConfirmation(null, 'BulkDeleteServices'); setIsBulkDropdownOpen(false); }}
+                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors border-t border-gray-50"
+                               >
+                                 <Trash2 size={16} /> Delete Selected
+                               </button>
+                            </div>
+                          )}
+                       </div>
+                    )}
+
                     <div className="relative w-full md:w-64">
                        <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
                        <input 
@@ -1476,6 +1548,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  <table className="w-full text-left border-collapse min-w-[800px]">
                     <thead>
                        <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                          <th className="p-4 w-10">
+                            <input 
+                              type="checkbox" 
+                              onChange={handleSelectAll}
+                              // Check if ALL filtered items are selected
+                              checked={
+                                (() => {
+                                  const filtered = services.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()));
+                                  return filtered.length > 0 && filtered.every(s => selectedIds.has(s.id));
+                                })()
+                              }
+                              className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                            />
+                          </th>
                           <th className="p-4 font-medium">Service Name</th>
                           <th className="p-4 font-medium">Category</th>
                           <th className="p-4 font-medium">Price Range</th>
@@ -1487,7 +1573,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        {services
                           .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()))
                           .map((service) => (
-                          <tr key={service.id} className="hover:bg-gray-50 transition-colors">
+                          <tr 
+                            key={service.id} 
+                            className={`hover:bg-gray-50 transition-colors ${selectedIds.has(service.id) ? 'bg-gold-50/30' : ''}`}
+                          >
+                             <td className="p-4">
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedIds.has(service.id)}
+                                  onChange={() => handleSelectOne(service.id)}
+                                  className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                                />
+                             </td>
                              <td className="p-4">
                                 <div className="flex items-center gap-3">
                                    <img src={service.image} alt={service.title} className="w-10 h-10 rounded object-cover" />
@@ -1800,7 +1897,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
                   confirmationAction.type?.includes('Confirm') ? 'bg-green-100 text-green-600' :
                   confirmationAction.type?.includes('Cancel') ? 'bg-red-100 text-red-600' :
-                  confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' ? 'bg-gray-100 text-gray-600' :
+                  confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' || confirmationAction.type === 'BulkDeleteServices' ? 'bg-gray-100 text-gray-600' :
                   confirmationAction.type === 'Restore' ? 'bg-gold-100 text-gold-600' :
                   confirmationAction.type === 'ResetDatabase' ? 'bg-red-100 text-red-600' :
                   'bg-blue-100 text-blue-600'
@@ -1818,14 +1915,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {confirmationAction.type === 'BulkComplete' && 'Complete Selected Items'}
                   {confirmationAction.type === 'ResetDatabase' && 'Reset System Database?'}
                   {confirmationAction.type === 'DeleteService' && 'Delete Service?'}
+                  {confirmationAction.type === 'BulkEnableServices' && 'Enable Selected Services?'}
+                  {confirmationAction.type === 'BulkDisableServices' && 'Disable Selected Services?'}
+                  {confirmationAction.type === 'BulkDeleteServices' && 'Delete Selected Services?'}
                 </h3>
                 <p className="text-gray-500 text-sm mb-6">
                   {confirmationAction.type === 'ResetDatabase'
                     ? 'WARNING: This will delete ALL current appointments and inquiries and reset the system to its initial state. Are you absolutely sure?' 
                     : confirmationAction.type?.includes('Trash')
                     ? 'Are you sure you want to remove these items? You can restore them later.' 
-                    : confirmationAction.type === 'DeleteService'
-                    ? 'This will permanently remove the service from your list.'
+                    : confirmationAction.type === 'DeleteService' || confirmationAction.type === 'BulkDeleteServices'
+                    ? 'This will permanently remove the service(s) from your list.'
                     : confirmationAction.type === 'Restore' 
                     ? 'This appointment will be moved back to Pending status.'
                     : confirmationAction.type?.startsWith('Bulk')
@@ -1847,7 +1947,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                      className={`flex-1 py-2.5 rounded-lg text-white font-medium shadow-md transition-colors ${
                        confirmationAction.type?.includes('Confirm') ? 'bg-green-600 hover:bg-green-700' :
                        confirmationAction.type?.includes('Cancel') ? 'bg-red-600 hover:bg-red-700' :
-                       confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' ? 'bg-gray-600 hover:bg-gray-700' :
+                       confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' || confirmationAction.type === 'BulkDeleteServices' ? 'bg-gray-600 hover:bg-gray-700' :
                        confirmationAction.type === 'Restore' ? 'bg-gold-600 hover:bg-gold-700' :
                        confirmationAction.type === 'ResetDatabase' ? 'bg-red-600 hover:bg-red-700' :
                        'bg-blue-600 hover:bg-blue-700'

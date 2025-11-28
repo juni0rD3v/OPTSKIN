@@ -126,6 +126,20 @@ export const backend = {
     localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
   },
 
+  toggleMultipleServicesAvailability: async (ids: string[], isAvailable: boolean): Promise<void> => {
+    await delay(400);
+    const services = await backend.getServices();
+    const updated = services.map(s => ids.includes(s.id) ? { ...s, available: isAvailable } : s);
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
+  },
+
+  deleteMultipleServices: async (ids: string[]): Promise<void> => {
+    await delay(400);
+    const services = await backend.getServices();
+    const updated = services.filter(s => !ids.includes(s.id));
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
+  },
+
   // --- Database Management (Backup/Restore) ---
   getBackupData: async (): Promise<string> => {
     await delay(500);
