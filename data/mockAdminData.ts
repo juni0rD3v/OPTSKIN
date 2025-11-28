@@ -1,3 +1,4 @@
+
 import { Appointment, Inquiry } from '../types';
 
 export const mockAppointments: Appointment[] = [
@@ -65,7 +66,8 @@ export const mockInquiries: Inquiry[] = [
     phone: '0917 000 0000',
     message: 'Hi, do you offer free consultations for Ultherapy? I am interested in the 600 shots package.',
     date: '2025-04-10',
-    read: false
+    read: false,
+    status: 'New'
   },
   {
     id: 'INQ-002',
@@ -74,6 +76,7 @@ export const mockInquiries: Inquiry[] = [
     phone: '0918 222 3333',
     message: 'How much is the Emsculpt package for 6 sessions?',
     date: '2025-04-09',
-    read: true
+    read: true,
+    status: 'Contacted'
   }
 ];

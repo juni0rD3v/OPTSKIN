@@ -1,9 +1,11 @@
 
-import { Appointment, Inquiry, AppointmentStatus } from '../types';
+import { Appointment, Inquiry, AppointmentStatus, InquiryStatus, ServiceInfo } from '../types';
 import { mockAppointments, mockInquiries } from '../data/mockAdminData';
+import { servicesData } from '../data/services';
 
 const APPOINTMENTS_KEY = 'optimum_skin_appointments_db';
 const INQUIRIES_KEY = 'optimum_skin_inquiries_db';
+const SERVICES_KEY = 'optimum_skin_services_db';
 
 // Initialize storage with mock data if it's the first visit
 const initStorage = () => {
@@ -13,6 +15,10 @@ const initStorage = () => {
     }
     if (!localStorage.getItem(INQUIRIES_KEY)) {
       localStorage.setItem(INQUIRIES_KEY, JSON.stringify(mockInquiries));
+    }
+    if (!localStorage.getItem(SERVICES_KEY)) {
+      // Initialize with the static service data
+      localStorage.setItem(SERVICES_KEY, JSON.stringify(servicesData));
     }
   }
 };
@@ -75,12 +81,36 @@ export const backend = {
     localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
   },
 
+  updateInquiryStatus: async (id: string, status: InquiryStatus): Promise<void> => {
+    await delay(200);
+    const inquiries = await backend.getInquiries();
+    const updated = inquiries.map(i => i.id === id ? { ...i, status } : i);
+    localStorage.setItem(INQUIRIES_KEY, JSON.stringify(updated));
+  },
+
+  // --- Services ---
+  getServices: async (): Promise<ServiceInfo[]> => {
+    await delay(200);
+    initStorage();
+    const data = localStorage.getItem(SERVICES_KEY);
+    // Fallback to static data if localstorage is empty/corrupt
+    return data ? JSON.parse(data) : servicesData;
+  },
+
+  toggleServiceAvailability: async (id: string, isAvailable: boolean): Promise<void> => {
+    await delay(300);
+    const services = await backend.getServices();
+    const updated = services.map(s => s.id === id ? { ...s, available: isAvailable } : s);
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(updated));
+  },
+
   // --- Database Management (Backup/Restore) ---
   getBackupData: async (): Promise<string> => {
     await delay(500);
     const backup = {
       appointments: JSON.parse(localStorage.getItem(APPOINTMENTS_KEY) || '[]'),
       inquiries: JSON.parse(localStorage.getItem(INQUIRIES_KEY) || '[]'),
+      services: JSON.parse(localStorage.getItem(SERVICES_KEY) || JSON.stringify(servicesData)),
       timestamp: new Date().toISOString()
     };
     return JSON.stringify(backup, null, 2);
@@ -95,6 +125,9 @@ export const backend = {
       if (data.inquiries && Array.isArray(data.inquiries)) {
         localStorage.setItem(INQUIRIES_KEY, JSON.stringify(data.inquiries));
       }
+      if (data.services && Array.isArray(data.services)) {
+        localStorage.setItem(SERVICES_KEY, JSON.stringify(data.services));
+      }
       await delay(500);
       return true;
     } catch (e) {
@@ -106,6 +139,7 @@ export const backend = {
   resetDatabase: async () => {
     localStorage.removeItem(APPOINTMENTS_KEY);
     localStorage.removeItem(INQUIRIES_KEY);
+    localStorage.removeItem(SERVICES_KEY);
     initStorage();
     return true;
   }

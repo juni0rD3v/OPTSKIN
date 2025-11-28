@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Lock, ArrowLeft } from 'lucide-react';
+import { Lock, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { ToastType } from './Toast';
 
 interface AdminLoginProps {
-  onLogin: () => void;
+  onLogin: (role: 'staff' | 'superadmin') => void;
   onBack: () => void;
   showToast: (message: string, type: ToastType) => void;
 }
@@ -14,10 +14,15 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, onBack, showToast }) =
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simple mock authentication
+    setError('');
+    
+    // Mock Role-Based Authentication
     if (password === 'admin123') {
-      onLogin();
-      showToast('Welcome back, Admin!', 'success');
+      onLogin('staff');
+      showToast('Welcome back, Staff Member!', 'success');
+    } else if (password === 'developer123') {
+      onLogin('superadmin');
+      showToast('Welcome back, Developer! Full access granted.', 'success');
     } else {
       setError('Invalid Access Code');
       showToast('Invalid access code provided.', 'error');
@@ -40,7 +45,7 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, onBack, showToast }) =
           <div className="w-16 h-16 bg-gold-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Lock className="text-gold-600" size={32} />
           </div>
-          <h1 className="font-serif text-2xl font-bold text-gray-900">Staff Portal</h1>
+          <h1 className="font-serif text-2xl font-bold text-gray-900">Portal Access</h1>
           <p className="text-gray-500 text-sm">Enter your access code to view the dashboard.</p>
         </div>
 
@@ -68,11 +73,16 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, onBack, showToast }) =
             Login
           </button>
 
-          <div className="text-center space-y-2">
-            <p className="text-xs text-gray-400">Restricted Access. Authorized Personnel Only.</p>
-            <p className="text-xs text-gold-600 bg-gold-50 inline-block px-2 py-1 rounded">
-              Demo Access Code: <strong>admin123</strong>
-            </p>
+          <div className="text-center pt-4 border-t border-gray-100">
+            <p className="text-xs text-gray-400 mb-2">Restricted Access. Authorized Personnel Only.</p>
+            <div className="flex flex-col gap-1 items-center">
+              <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded border border-gray-200">
+                Staff Code: <strong>admin123</strong>
+              </span>
+              <span className="text-xs text-gold-700 bg-gold-50 px-2 py-1 rounded border border-gold-200 flex items-center gap-1">
+                <ShieldCheck size={10} /> Dev Code: <strong>developer123</strong>
+              </span>
+            </div>
           </div>
         </form>
       </div>

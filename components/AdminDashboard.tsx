@@ -4,38 +4,48 @@ import {
   LayoutDashboard, Calendar as CalendarIcon, MessageSquare, LogOut, 
   CheckCircle, XCircle, Clock, Search, MoreHorizontal, User, Mail, Phone, ChevronRight, ChevronLeft,
   Filter, ChevronUp, ChevronDown, ArrowUpDown, AlertTriangle, CheckSquare, ExternalLink, History, Users, Eye, FileText,
-  BarChart3, TrendingUp, DollarSign, PieChart, Trash2, RotateCcw, Menu, X, Database, Download, Upload, Check
+  BarChart3, TrendingUp, DollarSign, PieChart, Trash2, RotateCcw, Menu, X, Database, Download, Upload, Lock, Settings, AlertOctagon, Briefcase, RefreshCw
 } from 'lucide-react';
-import { Appointment, Inquiry, AppointmentStatus } from '../types';
-import { servicesData } from '../data/services';
+import { Appointment, Inquiry, AppointmentStatus, InquiryStatus, ServiceInfo } from '../types';
+import { servicesData } from '../data/services'; // Kept for price calc fallback
 import { ToastType } from './Toast';
 
 interface AdminDashboardProps {
   onLogout: () => void;
   appointments: Appointment[];
   inquiries: Inquiry[];
+  services: ServiceInfo[]; 
   onStatusChange: (id: string, status: AppointmentStatus) => void;
   onBulkStatusChange: (ids: string[], status: AppointmentStatus) => void;
   onMarkInquiryRead: (id: string) => void;
+  onInquiryStatusChange: (id: string, status: InquiryStatus) => void;
+  onToggleServiceAvailability: (id: string, isAvailable: boolean) => void;
   showToast: (message: string, type: ToastType) => void;
   onViewSite: () => void;
   onDownloadBackup: () => void;
   onUploadBackup: (file: File) => void;
+  onResetDatabase: () => void;
+  adminRole: 'staff' | 'superadmin' | null;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
   onLogout, 
   appointments, 
   inquiries, 
+  services,
   onStatusChange, 
   onBulkStatusChange,
   onMarkInquiryRead, 
+  onInquiryStatusChange,
+  onToggleServiceAvailability,
   showToast, 
   onViewSite,
   onDownloadBackup,
-  onUploadBackup
+  onUploadBackup,
+  onResetDatabase,
+  adminRole
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'appointments' | 'inquiries' | 'clients' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'appointments' | 'inquiries' | 'clients' | 'reports' | 'settings' | 'services'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // Filter & Search State
@@ -50,7 +60,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Bulk Action State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isBulkActionOpen, setIsBulkActionOpen] = useState(false);
 
   // Report Filter State
   const [reportFilterMonth, setReportFilterMonth] = useState<string>('All');
@@ -61,6 +70,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Calendar State
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | null>(null);
 
   // Tooltip State
   const [tooltipData, setTooltipData] = useState<{
@@ -74,7 +84,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Confirmation Dialog State
   const [confirmationAction, setConfirmationAction] = useState<{
     isOpen: boolean;
-    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | null;
+    type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase' | null;
     appointmentId: string | null;
   }>({ isOpen: false, type: null, appointmentId: null });
 
@@ -116,7 +126,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Reset pagination and selections when filters change
   useEffect(() => {
     setCurrentPage(1);
-    setSelectedIds(new Set()); // Clear selection on filter change for safety
+    setSelectedIds(new Set()); 
   }, [searchTerm, activeStatusTab, filterService, dateRange]);
 
   // Close sidebar when tab changes on mobile
@@ -125,7 +135,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [activeTab]);
 
   // Extract unique services for filter dropdown
-  const allServices = Array.from(new Set(servicesData.map(s => s.title))).sort();
+  const allServices = Array.from(new Set(services.map(s => s.title))).sort();
 
   // Filter Logic
   const filteredAppointments = appointments.filter(apt => {
@@ -168,7 +178,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Bulk Selection Logic
   const handleSelectAll = () => {
-    if (paginatedAppointments.every(a => selectedIds.has(a.id))) {
+    if (paginatedAppointments.length > 0 && paginatedAppointments.every(a => selectedIds.has(a.id))) {
       // Deselect all on current page
       const newSelected = new Set(selectedIds);
       paginatedAppointments.forEach(a => newSelected.delete(a.id));
@@ -209,13 +219,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const existing = clientMap.get(apt.clientName);
       if (existing) {
         existing.totalVisits += 1;
-        // Update contact info to most recent
         if (new Date(apt.date) > new Date(existing.lastVisit)) {
           existing.lastVisit = apt.date;
           existing.email = apt.email;
           existing.phone = apt.phone;
         }
-        // If they have a future confirmed/pending appt, they are active
         if (apt.status === 'Confirmed' || apt.status === 'Pending') {
            existing.status = 'Active';
         }
@@ -236,6 +244,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       client.email.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [appointments, searchTerm]);
+
+  // Client History Stats Logic
+  const clientHistoryStats = useMemo(() => {
+    if (!viewClientHistory) return null;
+    
+    const clientAppts = appointments.filter(a => a.clientName === viewClientHistory);
+    const completed = clientAppts.filter(a => a.status === 'Completed').length;
+    const cancelled = clientAppts.filter(a => a.status === 'Cancelled').length;
+    
+    const serviceCounts: Record<string, number> = {};
+    clientAppts.forEach(a => { serviceCounts[a.service] = (serviceCounts[a.service] || 0) + 1; });
+    const favoriteService = Object.entries(serviceCounts).sort((a,b) => b[1] - a[1])[0]?.[0] || 'None';
+
+    return {
+      total: clientAppts.length,
+      completed,
+      cancelled,
+      favoriteService
+    };
+  }, [viewClientHistory, appointments]);
 
   // --- Reports Logic ---
   const reportsData = useMemo(() => {
@@ -260,7 +288,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     // 2. Revenue Estimation
     let totalRevenue = 0;
     filteredReportApps.filter(a => a.status === 'Completed').forEach(apt => {
-       const service = servicesData.find(s => s.title === apt.service);
+       const service = services.find(s => s.title === apt.service) || servicesData.find(s => s.title === apt.service);
        if (service) {
          const priceString = service.priceRange.replace(/,/g, '').replace(/₱/g, '');
          const prices = priceString.match(/(\d+)/g);
@@ -304,7 +332,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }));
     }
 
-    // 4. Status Breakdown for Pie Chart
+    // 4. Status Breakdown
     const statusCounts = {
         Pending: 0,
         Confirmed: 0,
@@ -329,11 +357,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const totalApps = allAppsForStatus.length;
     let currentDeg = 0;
     const statusColors = {
-        Confirmed: '#22c55e', // green-500
-        Pending: '#eab308',   // yellow-500
-        Completed: '#3b82f6', // blue-500
-        Cancelled: '#9ca3af', // gray-400
-        Trash: '#ef4444'      // red-500
+        Confirmed: '#22c55e', 
+        Pending: '#eab308',   
+        Completed: '#3b82f6', 
+        Cancelled: '#9ca3af', 
+        Trash: '#ef4444'      
     };
     
     let gradientParts: string[] = [];
@@ -361,7 +389,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       topServices, totalRevenue, chartData, chartLabel, conversionRate, cancellationRate, 
       statusCounts, pieChartGradient, totalApps 
     };
-  }, [appointments, reportFilterMonth]);
+  }, [appointments, reportFilterMonth, services]);
 
 
   // Stats
@@ -396,8 +424,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setCurrentDate(new Date());
   };
 
+  const handleDayClick = (day: number) => {
+    const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+    setSelectedCalendarDate(date);
+  };
+
   // Action Handlers
-  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete') => {
+  const openConfirmation = (id: string | null, type: 'Confirm' | 'Cancel' | 'Complete' | 'Trash' | 'Restore' | 'BulkTrash' | 'BulkCancel' | 'BulkComplete' | 'ResetDatabase') => {
     setConfirmationAction({ isOpen: true, type, appointmentId: id });
   };
 
@@ -410,7 +443,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       let message = '';
       let toastType: ToastType = 'success';
 
-      if (confirmationAction.type.startsWith('Bulk')) {
+      if (confirmationAction.type === 'ResetDatabase') {
+         onResetDatabase();
+         message = 'System reset completed.';
+      }
+      else if (confirmationAction.type.startsWith('Bulk')) {
          const ids = Array.from(selectedIds);
          let newStatus: AppointmentStatus = 'Pending';
          if (confirmationAction.type === 'BulkTrash') newStatus = 'Trash';
@@ -418,8 +455,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
          if (confirmationAction.type === 'BulkComplete') newStatus = 'Completed';
          
          onBulkStatusChange(ids, newStatus);
-         message = `${ids.length} appointments updated.`;
-         setSelectedIds(new Set()); // Clear selection
+         message = `${ids.length} items updated.`;
+         setSelectedIds(new Set()); 
       } else if (confirmationAction.appointmentId) {
           let newStatus: AppointmentStatus = 'Pending';
           switch (confirmationAction.type) {
@@ -432,7 +469,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onStatusChange(confirmationAction.appointmentId, newStatus);
       }
 
-      showToast(message, toastType);
+      if (confirmationAction.type !== 'ResetDatabase') showToast(message, toastType);
       closeConfirmation();
       setViewAppointment(null);
     }
@@ -451,6 +488,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   } : { phone: '', email: '' };
 
   const statusTabs: (AppointmentStatus | 'All')[] = ['All', 'Pending', 'Confirmed', 'Completed', 'Cancelled', 'Trash'];
+
+  // Calendar Day Modal Appointments
+  const selectedDayAppointments = selectedCalendarDate 
+    ? getDailyAppointments(selectedCalendarDate.getDate())
+    : [];
 
   return (
     <div className="min-h-screen bg-gray-100 flex animate-fade-in relative overflow-hidden">
@@ -472,7 +514,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="p-6 border-b border-gray-800 flex justify-between items-center">
           <div>
             <h2 className="font-serif text-2xl font-bold">Optimum<span className="text-gold-500">Admin</span></h2>
-            <p className="text-xs text-gray-500 mt-1">Staff Portal v1.0</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {adminRole === 'superadmin' ? 'Developer Access' : 'Staff Portal v1.0'}
+            </p>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-gray-400 hover:text-white">
             <X size={24} />
@@ -480,44 +524,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          <button 
-            onClick={() => setActiveTab('overview')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'overview' ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-          >
-            <LayoutDashboard size={20} /> Overview
-          </button>
-          <button 
-            onClick={() => setActiveTab('calendar')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'calendar' ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-          >
-            <CalendarIcon size={20} /> Calendar
-          </button>
-          <button 
-            onClick={() => setActiveTab('appointments')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'appointments' ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-          >
-            <Clock size={20} /> Appointments
-            {pendingCount > 0 && <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{pendingCount}</span>}
-          </button>
-          <button 
-            onClick={() => setActiveTab('clients')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'clients' ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-          >
-            <Users size={20} /> Clients
-          </button>
-          <button 
-            onClick={() => setActiveTab('inquiries')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'inquiries' ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-          >
-            <MessageSquare size={20} /> Inquiries
-            {unreadInquiries > 0 && <span className="ml-auto bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadInquiries}</span>}
-          </button>
-          <button 
-            onClick={() => setActiveTab('reports')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'reports' ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-          >
-            <BarChart3 size={20} /> Reports
-          </button>
+          {['overview', 'calendar', 'appointments', 'clients', 'inquiries', 'reports', 'services', 'settings'].map((tab) => (
+             <button 
+                key={tab}
+                onClick={() => setActiveTab(tab as any)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors capitalize ${activeTab === tab ? 'bg-gold-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+             >
+                {tab === 'overview' && <LayoutDashboard size={20} />}
+                {tab === 'calendar' && <CalendarIcon size={20} />}
+                {tab === 'appointments' && <Clock size={20} />}
+                {tab === 'clients' && <Users size={20} />}
+                {tab === 'inquiries' && <MessageSquare size={20} />}
+                {tab === 'reports' && <BarChart3 size={20} />}
+                {tab === 'services' && <Briefcase size={20} />}
+                {tab === 'settings' && <Settings size={20} />}
+                {tab}
+                {tab === 'appointments' && pendingCount > 0 && <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{pendingCount}</span>}
+                {tab === 'inquiries' && unreadInquiries > 0 && <span className="ml-auto bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">{unreadInquiries}</span>}
+             </button>
+          ))}
 
           <div className="pt-4 mt-4 border-t border-gray-800">
              <button 
@@ -556,6 +581,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                activeTab === 'calendar' ? 'Calendar' : 
                activeTab === 'clients' ? 'Client Directory' :
                activeTab === 'reports' ? 'Analytics & Reports' :
+               activeTab === 'settings' ? 'System Settings' :
                activeTab}
             </h1>
           </div>
@@ -564,8 +590,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                 <span className="text-sm text-gray-500">System Online</span>
              </div>
-             <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600">
+             <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 relative group cursor-help">
                 <User size={20} />
+                <div className="absolute top-full right-0 mt-2 bg-black text-white text-xs px-2 py-1 rounded hidden group-hover:block whitespace-nowrap z-50">
+                   Role: {adminRole === 'superadmin' ? 'Super Admin' : 'Staff'}
+                </div>
              </div>
           </div>
         </header>
@@ -621,39 +650,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                </div>
             </div>
 
-            {/* Quick Actions & Backup */}
+            {/* Quick Actions & Notes */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                  <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><Database size={18} /> Database Management</h3>
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 text-sm mb-4">
-                     <p className="text-gray-600 mb-2">Ensure your data is safe by regularly downloading a backup. You can restore it later if needed.</p>
-                     <div className="flex gap-4 mt-4">
-                        <button 
-                          onClick={onDownloadBackup}
-                          className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gold-600 transition-colors font-medium text-sm"
-                        >
-                           <Download size={16} /> Download Data
-                        </button>
-                        <div className="relative">
-                           <input 
-                             type="file" 
-                             accept=".json"
-                             onChange={(e) => e.target.files && onUploadBackup(e.target.files[0])}
-                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                           />
-                           <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium text-sm">
-                              <Upload size={16} /> Restore Data
-                           </button>
-                        </div>
-                     </div>
-                  </div>
-                  
-                  <h3 className="font-bold text-gray-900 mb-4 mt-6">Clinic Notes</h3>
-                  <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-100 text-sm text-yellow-800 mb-3">
-                     <strong>Reminder:</strong> Dr. Tica is out of office on April 20th. Block schedule accordingly.
-                  </div>
-               </div>
-
                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="font-bold text-gray-900">Recent Appointments</h3>
@@ -670,7 +668,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                >
                                  {apt.clientName}
                                </button>
-                               {/* Show 'New' badge if ID was generated recently (mock check) */}
                                {apt.id.startsWith('APT-') && apt.id.length > 8 && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">NEW</span>}
                             </div>
                             <p className="text-xs text-gray-500">{apt.service} • {apt.time}</p>
@@ -681,12 +678,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                      <button onClick={() => setActiveTab('appointments')} className="w-full py-2 text-sm text-gold-600 font-bold hover:bg-gold-50 rounded transition-colors border border-dashed border-gold-200">View All Appointments</button>
                   </div>
                </div>
+
+               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <h3 className="font-bold text-gray-900 mb-4">Clinic Notes</h3>
+                  <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-100 text-sm text-yellow-800 mb-3">
+                     <strong>Reminder:</strong> Dr. Tica is out of office on April 20th. Block schedule accordingly.
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-600 flex items-center gap-2">
+                     <Lock size={14} /> Database management is available in the Settings tab for Administrators.
+                  </div>
+               </div>
             </div>
           </div>
         )}
 
-        {/* Other Tabs Content Omitted for Brevity (Same as before) but Reports/Calendar/etc. remains */}
-        
+        {/* ... Reports Tab Logic ... */}
         {activeTab === 'reports' && (
            <div className="space-y-6 animate-fade-in pb-10">
              {/* Filter Control */}
@@ -739,9 +745,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    </div>
                 </div>
              </div>
-
+             {/* ... Charts ... */}
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Status Breakdown (Pie Chart) */}
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                    <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
                      <PieChart size={20} className="text-gold-600" /> Appointment Status
@@ -757,31 +762,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                          </div>
                       </div>
                       <div className="w-full space-y-2">
-                          <div className="flex justify-between text-sm">
-                             <div className="flex items-center gap-2"><span className="w-3 h-3 bg-green-500 rounded-full"></span> Confirmed</div>
-                             <span className="font-bold">{reportsData.statusCounts.Confirmed}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                             <div className="flex items-center gap-2"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span> Pending</div>
-                             <span className="font-bold">{reportsData.statusCounts.Pending}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                             <div className="flex items-center gap-2"><span className="w-3 h-3 bg-blue-500 rounded-full"></span> Completed</div>
-                             <span className="font-bold">{reportsData.statusCounts.Completed}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                             <div className="flex items-center gap-2"><span className="w-3 h-3 bg-gray-400 rounded-full"></span> Cancelled</div>
-                             <span className="font-bold">{reportsData.statusCounts.Cancelled}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                             <div className="flex items-center gap-2"><span className="w-3 h-3 bg-red-500 rounded-full"></span> Trash</div>
-                             <span className="font-bold">{reportsData.statusCounts.Trash}</span>
-                          </div>
+                          {['Confirmed', 'Pending', 'Completed', 'Cancelled', 'Trash'].map((status) => (
+                             <div key={status} className="flex justify-between text-sm">
+                                <div className="flex items-center gap-2">
+                                   <span className={`w-3 h-3 rounded-full ${
+                                      status === 'Confirmed' ? 'bg-green-500' :
+                                      status === 'Pending' ? 'bg-yellow-500' :
+                                      status === 'Completed' ? 'bg-blue-500' :
+                                      status === 'Trash' ? 'bg-red-500' : 'bg-gray-400'
+                                   }`}></span> {status}
+                                </div>
+                                <span className="font-bold">{reportsData.statusCounts[status as keyof typeof reportsData.statusCounts]}</span>
+                             </div>
+                          ))}
                       </div>
                    </div>
                 </div>
-
-                {/* Popular Services Chart */}
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
                    <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
                      <BarChart3 size={20} className="text-gold-600" /> Most Popular Services <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded ml-2">{reportFilterMonth}</span>
@@ -831,7 +827,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
            </div>
         )}
 
-        {/* ... Calendar, Clients, Inquiries Tabs ... */}
+        {/* CALENDAR TAB */}
         {activeTab === 'calendar' && (
            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 animate-fade-in relative pb-10">
              <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
@@ -861,22 +857,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         const dayAppointments = getDailyAppointments(day);
                         const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toDateString();
                         return (
-                          <div key={day} className={`bg-white min-h-[100px] md:min-h-[120px] p-1 md:p-2 hover:bg-gray-50 transition-colors flex flex-col gap-1 group ${isToday ? 'bg-gold-50/20' : ''}`}>
-                             <span className={`text-xs md:text-sm font-medium w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full mb-1 ${isToday ? 'bg-gold-600 text-white shadow-sm' : 'text-gray-700'}`}>
-                               {day}
-                             </span>
+                          <div 
+                            key={day} 
+                            onClick={() => handleDayClick(day)}
+                            className={`bg-white min-h-[100px] md:min-h-[120px] p-1 md:p-2 hover:bg-gray-50 transition-colors flex flex-col gap-1 group cursor-pointer ${isToday ? 'bg-gold-50/20' : ''}`}
+                          >
+                             <div className="flex justify-between items-start">
+                                <span className={`text-xs md:text-sm font-medium w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full mb-1 ${isToday ? 'bg-gold-600 text-white shadow-sm' : 'text-gray-700'}`}>
+                                  {day}
+                                </span>
+                                {dayAppointments.length > 0 && (
+                                   <span className="text-[10px] font-bold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">
+                                      {dayAppointments.length}
+                                   </span>
+                                )}
+                             </div>
                              <div className="space-y-1 overflow-y-auto max-h-[60px] md:max-h-[80px]">
                                 {dayAppointments.map(apt => (
                                   <div 
                                     key={apt.id}
-                                    onMouseEnter={(e) => setTooltipData({ appointment: apt, rect: e.currentTarget.getBoundingClientRect() })}
-                                    onMouseLeave={() => setTooltipData(null)}
-                                    onClick={() => setViewAppointment(apt)}
-                                    className={`text-[10px] px-1.5 py-1 rounded border-l-2 truncate cursor-pointer transition-transform hover:scale-105 ${
-                                      apt.status === 'Confirmed' ? 'bg-green-50 border-green-500 text-green-800 hover:bg-green-100' :
-                                      apt.status === 'Pending' ? 'bg-yellow-50 border-yellow-500 text-yellow-800 hover:bg-yellow-100' :
-                                      apt.status === 'Completed' ? 'bg-blue-50 border-blue-500 text-blue-800 hover:bg-blue-100' :
-                                      'bg-gray-50 border-gray-400 text-gray-500 hover:bg-gray-100'
+                                    className={`text-[10px] px-1.5 py-1 rounded border-l-2 truncate transition-transform hover:scale-105 ${
+                                      apt.status === 'Confirmed' ? 'bg-green-50 border-green-500 text-green-800' :
+                                      apt.status === 'Pending' ? 'bg-yellow-50 border-yellow-500 text-yellow-800' :
+                                      apt.status === 'Completed' ? 'bg-blue-50 border-blue-500 text-blue-800' :
+                                      'bg-gray-50 border-gray-400 text-gray-500'
                                     }`}
                                   >
                                     <span className="font-bold hidden md:inline">{apt.time}</span> <span className="md:hidden">.</span> {apt.clientName}
@@ -892,12 +896,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
+        {/* APPOINTMENTS TAB */}
         {activeTab === 'appointments' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in flex flex-col h-[calc(100vh-140px)]">
              {/* Toolbar */}
              <div className="p-4 md:p-6 border-b border-gray-100 space-y-4 flex-shrink-0">
                {/* Status Tabs */}
-               <div className="flex flex-wrap gap-2 pb-2 items-center">
+               <div className="flex flex-wrap gap-2 pb-2">
                   {statusTabs.map(status => {
                      const isActive = activeStatusTab === status;
                      const count = getStatusCount(status);
@@ -920,46 +925,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                </div>
 
                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                 {/* Bulk Actions Menu (Visible when items selected) */}
-                 {selectedIds.size > 0 && (
-                    <div className="flex items-center gap-2 w-full md:w-auto animate-fade-in bg-blue-50 p-1.5 rounded-lg border border-blue-100">
-                       <span className="text-sm font-bold text-blue-800 px-2">{selectedIds.size} Selected</span>
-                       <div className="h-6 w-px bg-blue-200 mx-1"></div>
-                       <button 
-                          onClick={() => openConfirmation(null, 'BulkComplete')}
-                          className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 flex items-center gap-1 transition-colors"
-                        >
-                          <CheckSquare size={14} /> Complete
-                       </button>
-                       <button 
-                          onClick={() => openConfirmation(null, 'BulkCancel')}
-                          className="px-3 py-1.5 bg-gray-600 text-white text-xs font-bold rounded hover:bg-gray-700 flex items-center gap-1 transition-colors"
-                        >
-                          <XCircle size={14} /> Cancel
-                       </button>
-                       <button 
-                          onClick={() => openConfirmation(null, 'BulkTrash')}
-                          className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700 flex items-center gap-1 transition-colors"
-                        >
-                          <Trash2 size={14} /> Trash
-                       </button>
-                    </div>
-                 )}
-
-                 {!selectedIds.size && (
+                 <div className="flex items-center gap-2 w-full md:w-auto">
+                    {/* Bulk Actions Dropdown */}
+                    {selectedIds.size > 0 && (
+                       <div className="flex items-center gap-2 animate-fade-in">
+                          <span className="text-xs text-gray-500 font-bold hidden md:inline">{selectedIds.size} Selected</span>
+                          <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                             <button onClick={() => openConfirmation(null, 'BulkComplete')} className="p-2 hover:bg-blue-50 text-blue-600 border-r border-gray-100" title="Complete Selected"><CheckSquare size={16}/></button>
+                             <button onClick={() => openConfirmation(null, 'BulkCancel')} className="p-2 hover:bg-red-50 text-red-500 border-r border-gray-100" title="Cancel Selected"><XCircle size={16}/></button>
+                             <button onClick={() => openConfirmation(null, 'BulkTrash')} className="p-2 hover:bg-gray-100 text-gray-600" title="Trash Selected"><Trash2 size={16}/></button>
+                          </div>
+                       </div>
+                    )}
                     <div className="relative w-full md:w-96">
-                        <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-                        <input 
-                            type="text" 
-                            placeholder="Search client name or ID..." 
-                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                      <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="Search client name or ID..." 
+                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
                     </div>
-                 )}
-
-                 <div className="flex gap-2 w-full md:w-auto ml-auto">
+                 </div>
+                 <div className="flex gap-2 w-full md:w-auto">
                    <button 
                       onClick={() => setShowFilters(!showFilters)}
                       className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${showFilters ? 'bg-gold-50 text-gold-700 border border-gold-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
@@ -1011,15 +1000,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                <table className="w-full text-left border-collapse min-w-[800px]">
                  <thead>
                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
-                     <th className="p-4 w-12">
-                        <div className="flex items-center justify-center">
-                           <input 
-                             type="checkbox" 
-                             className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500 cursor-pointer"
-                             checked={paginatedAppointments.length > 0 && paginatedAppointments.every(a => selectedIds.has(a.id))}
-                             onChange={handleSelectAll}
-                           />
-                        </div>
+                     <th className="p-4 w-10">
+                        <input 
+                          type="checkbox" 
+                          onChange={handleSelectAll}
+                          checked={paginatedAppointments.length > 0 && paginatedAppointments.every(a => selectedIds.has(a.id))}
+                          className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                        />
                      </th>
                      <th className="p-4 font-medium cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('clientName')}>
                         <div className="flex items-center gap-1">
@@ -1039,24 +1026,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    </tr>
                  </thead>
                  <tbody className="divide-y divide-gray-100 text-sm">
-                   {paginatedAppointments.map(apt => {
-                     const isSelected = selectedIds.has(apt.id);
-                     return (
+                   {paginatedAppointments.map(apt => (
                      <tr 
                        key={apt.id} 
-                       className={`transition-colors ${isSelected ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}
+                       className={`hover:bg-gray-50 transition-colors ${selectedIds.has(apt.id) ? 'bg-gold-50/50' : ''}`}
                        onMouseEnter={(e) => setTooltipData({ appointment: apt, rect: e.currentTarget.getBoundingClientRect() })}
                        onMouseLeave={() => setTooltipData(null)}
                      >
                        <td className="p-4">
-                          <div className="flex items-center justify-center">
-                             <input 
-                               type="checkbox" 
-                               className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500 cursor-pointer"
-                               checked={isSelected}
-                               onChange={() => handleSelectOne(apt.id)}
-                             />
-                          </div>
+                          <input 
+                            type="checkbox" 
+                            checked={selectedIds.has(apt.id)}
+                            onChange={() => handleSelectOne(apt.id)}
+                            className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                          />
                        </td>
                        <td className="p-4">
                          <div className="flex items-center">
@@ -1154,6 +1137,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 >
                                     <XCircle size={18} />
                                 </button>
+                                <button 
+                                    onClick={() => openConfirmation(apt.id, 'Trash')}
+                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Move to Trash"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
                               </>
                            )}
 
@@ -1179,7 +1168,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                          </div>
                        </td>
                      </tr>
-                   )})}
+                   ))}
                    {sortedAppointments.length === 0 && (
                      <tr>
                        <td colSpan={6} className="p-8 text-center text-gray-500">No appointments found.</td>
@@ -1232,10 +1221,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* ... Clients & Inquiries Tabs (Identical content logic as previous, no major changes needed except maintaining them) ... */}
-        {/* I'll omit duplicating the exact Client/Inquiry code blocks as they persist from previous versions unless modified for bulk actions, which was requested for appointments specifically. */}
-        {/* However, for completeness in XML I must include the full file content or valid react component structure. I'll include the full previous content for Clients/Inquiries to ensure valid file. */}
-        
+        {/* CLIENTS TAB */}
         {activeTab === 'clients' && (
            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in pb-10">
               <div className="p-4 md:p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1306,6 +1292,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
            </div>
         )}
 
+        {/* INQUIRIES TAB */}
         {activeTab === 'inquiries' && (
            <div className="bg-white rounded-xl shadow-sm border border-gray-100 animate-fade-in pb-10">
               <div className="divide-y divide-gray-100">
@@ -1317,9 +1304,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <h3 className="font-bold text-gray-900">{inq.name}</h3>
                         <span className="text-gray-400 text-xs border border-gray-200 px-2 py-0.5 rounded whitespace-nowrap">{inq.date}</span>
                       </div>
-                      <button className="text-gray-400 hover:text-gold-600">
-                        <ChevronRight size={20} />
-                      </button>
+                      <div className="flex items-center gap-3">
+                         <select
+                            value={inq.status || 'New'}
+                            onChange={(e) => onInquiryStatusChange(inq.id, e.target.value as InquiryStatus)}
+                            className={`text-xs font-bold border rounded px-2 py-1 outline-none cursor-pointer ${
+                               inq.status === 'Resolved' ? 'bg-green-100 text-green-700 border-green-200' :
+                               inq.status === 'Contacted' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                               inq.status === 'Follow-up Needed' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                               'bg-gray-100 text-gray-700 border-gray-200'
+                            }`}
+                         >
+                            <option value="New">New</option>
+                            <option value="Contacted">Contacted</option>
+                            <option value="Follow-up Needed">Follow-up Needed</option>
+                            <option value="Resolved">Resolved</option>
+                         </select>
+                      </div>
                     </div>
                     <div className="text-sm text-gray-500 mb-2 flex flex-col md:flex-row md:gap-4">
                       <span>{inq.email}</span>
@@ -1347,9 +1348,231 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
            </div>
         )}
 
+        {/* SERVICES TAB */}
+        {activeTab === 'services' && (
+           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in pb-10">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                 <h2 className="text-lg font-bold text-gray-900">Services Management</h2>
+                 <p className="text-sm text-gray-500">Toggle availability of clinic services.</p>
+              </div>
+              
+              <div className="overflow-x-auto">
+                 <table className="w-full text-left border-collapse min-w-[800px]">
+                    <thead>
+                       <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                          <th className="p-4 font-medium">Service Name</th>
+                          <th className="p-4 font-medium">Category</th>
+                          <th className="p-4 font-medium">Price Range</th>
+                          <th className="p-4 font-medium text-center">Status</th>
+                          <th className="p-4 font-medium text-right">Actions</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-sm">
+                       {services.map((service) => (
+                          <tr key={service.id} className="hover:bg-gray-50 transition-colors">
+                             <td className="p-4">
+                                <div className="flex items-center gap-3">
+                                   <img src={service.image} alt={service.title} className="w-10 h-10 rounded object-cover" />
+                                   <div className={`font-bold ${service.available ? 'text-gray-900' : 'text-gray-400 line-through'}`}>{service.title}</div>
+                                </div>
+                             </td>
+                             <td className="p-4 text-gray-600">{service.category}</td>
+                             <td className="p-4 text-gray-600 font-medium">{service.priceRange}</td>
+                             <td className="p-4 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-bold border ${
+                                   service.available
+                                   ? 'bg-green-50 text-green-700 border-green-200' 
+                                   : 'bg-red-50 text-red-500 border-red-200'
+                                }`}>
+                                   {service.available ? 'Active' : 'Unavailable'}
+                                </span>
+                             </td>
+                             <td className="p-4 text-right">
+                                <button 
+                                  onClick={() => onToggleServiceAvailability(service.id, !service.available)}
+                                  className={`px-3 py-1.5 rounded text-xs font-bold transition-colors border ${
+                                     service.available 
+                                     ? 'border-red-200 text-red-600 hover:bg-red-50' 
+                                     : 'border-green-200 text-green-600 hover:bg-green-50'
+                                  }`}
+                                >
+                                   {service.available ? 'Disable Service' : 'Enable Service'}
+                                </button>
+                             </td>
+                          </tr>
+                       ))}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {activeTab === 'settings' && (
+           <div className="space-y-8 animate-fade-in pb-10">
+              {/* Profile Section */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                 <div className="p-6 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2"><User size={20} className="text-gold-600"/> Account Information</h3>
+                 </div>
+                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-2">Current Role</label>
+                       <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600">
+                          <Lock size={16} />
+                          <span className="capitalize font-bold">{adminRole === 'superadmin' ? 'Super Admin (Developer)' : 'Staff Member'}</span>
+                       </div>
+                    </div>
+                    <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-2">Clinic Branch</label>
+                       <input type="text" disabled value="Optimum Skin - Pasig City" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600" />
+                    </div>
+                 </div>
+              </div>
+
+              {/* General Settings */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                 <div className="p-6 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2"><Settings size={20} className="text-gold-600"/> System Preferences</h3>
+                 </div>
+                 <div className="p-6 space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+                       <div>
+                          <h4 className="font-bold text-gray-800 text-sm">Email Notifications</h4>
+                          <p className="text-xs text-gray-500">Receive an email when a new booking is made.</p>
+                       </div>
+                       <div className="w-10 h-6 bg-green-500 rounded-full relative cursor-pointer shadow-inner">
+                          <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+                       </div>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+                       <div>
+                          <h4 className="font-bold text-gray-800 text-sm">SMS Alerts</h4>
+                          <p className="text-xs text-gray-500">Receive SMS for high-priority inquiries.</p>
+                       </div>
+                       <div className="w-10 h-6 bg-gray-300 rounded-full relative cursor-pointer shadow-inner">
+                          <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+                       </div>
+                    </div>
+                 </div>
+              </div>
+
+              {/* Data Management - Super Admin Only */}
+              {adminRole === 'superadmin' && (
+                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                       <div className="flex items-center justify-between">
+                          <h3 className="font-bold text-gray-900 flex items-center gap-2"><Database size={20} className="text-gold-600"/> Database Management</h3>
+                          <span className="bg-red-100 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border border-red-200">Restricted Area</span>
+                       </div>
+                    </div>
+                    <div className="p-6 space-y-6">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="p-4 border border-gray-200 rounded-xl bg-white hover:border-gold-300 transition-colors">
+                             <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><Download size={16} /> Backup Data</h4>
+                             <p className="text-sm text-gray-500 mb-4">Download a full JSON snapshot of all appointments and inquiries.</p>
+                             <button 
+                                onClick={onDownloadBackup}
+                                className="w-full py-2 bg-black text-white rounded-lg text-sm font-bold hover:bg-gold-600 transition-colors"
+                             >
+                                Download Backup
+                             </button>
+                          </div>
+                          <div className="p-4 border border-gray-200 rounded-xl bg-white hover:border-gold-300 transition-colors relative">
+                             <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><Upload size={16} /> Restore Data</h4>
+                             <p className="text-sm text-gray-500 mb-4">Upload a JSON backup file to restore the database state.</p>
+                             <input 
+                               type="file" 
+                               accept=".json"
+                               onChange={(e) => e.target.files && onUploadBackup(e.target.files[0])}
+                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                             />
+                             <button className="w-full py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-100 transition-colors">
+                                Select File to Upload
+                             </button>
+                          </div>
+                       </div>
+
+                       {/* Danger Zone */}
+                       <div className="mt-8 pt-6 border-t border-gray-200">
+                          <h4 className="font-bold text-red-600 mb-2 flex items-center gap-2"><AlertOctagon size={18} /> Danger Zone</h4>
+                          <div className="flex flex-col md:flex-row items-center justify-between p-4 bg-red-50 border border-red-100 rounded-lg gap-4">
+                             <div>
+                                <p className="font-bold text-gray-900 text-sm">Reset Database to Defaults</p>
+                                <p className="text-xs text-gray-600">This will permanently delete all current data and restore the initial mock data. This action cannot be undone unless you have a backup.</p>
+                             </div>
+                             <button 
+                                onClick={() => openConfirmation(null, 'ResetDatabase')}
+                                className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-600 hover:text-white transition-colors whitespace-nowrap"
+                             >
+                                Reset Database
+                             </button>
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+              )}
+           </div>
+        )}
+
       </main>
 
-      {/* Confirmation Modal */}
+      {/* Day Schedule Modal (Calendar Interaction) */}
+      {selectedCalendarDate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full flex flex-col animate-slide-in overflow-hidden max-h-[80vh]">
+             <div className="bg-gold-50 p-6 border-b border-gold-100 flex justify-between items-start">
+                <div>
+                   <h2 className="text-xl font-serif font-bold text-gray-900">
+                      {selectedCalendarDate.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}
+                   </h2>
+                   <p className="text-gold-600 text-sm mt-1">{selectedDayAppointments.length} Appointments Scheduled</p>
+                </div>
+                <button onClick={() => setSelectedCalendarDate(null)} className="p-2 hover:bg-gold-100 rounded-full text-gold-600">
+                   <X size={24} />
+                </button>
+             </div>
+             
+             <div className="p-6 overflow-y-auto flex-1">
+                {selectedDayAppointments.length > 0 ? (
+                   <div className="space-y-4">
+                      {selectedDayAppointments.map((apt, index) => (
+                         <div key={apt.id} className="relative pl-4 border-l-2 border-gold-200 pb-4 last:pb-0">
+                            <div className="absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full bg-gold-500 ring-4 ring-white"></div>
+                            <div className="bg-white p-4 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setViewAppointment(apt)}>
+                               <div className="flex justify-between items-start mb-2">
+                                  <h4 className="font-bold text-gray-900 text-sm">{apt.time}</h4>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${getStatusBadge(apt.status)}`}>
+                                    {apt.status}
+                                  </span>
+                               </div>
+                               <h3 className="font-bold text-gray-800 mb-1">{apt.clientName}</h3>
+                               <p className="text-sm text-gray-500">{apt.service}</p>
+                            </div>
+                         </div>
+                      ))}
+                   </div>
+                ) : (
+                   <div className="text-center py-12 text-gray-400">
+                      <CalendarIcon size={48} className="mx-auto mb-4 opacity-20" />
+                      <p>No appointments scheduled for this day.</p>
+                   </div>
+                )}
+             </div>
+             
+             <div className="p-4 bg-gray-50 border-t border-gray-100 text-right">
+                <button 
+                  onClick={() => setSelectedCalendarDate(null)}
+                  className="px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  Close
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal - Updated for ResetDatabase */}
       {confirmationAction.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-slide-in">
@@ -1359,6 +1582,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   confirmationAction.type?.includes('Cancel') ? 'bg-red-100 text-red-600' :
                   confirmationAction.type?.includes('Trash') ? 'bg-gray-100 text-gray-600' :
                   confirmationAction.type === 'Restore' ? 'bg-gold-100 text-gold-600' :
+                  confirmationAction.type === 'ResetDatabase' ? 'bg-red-100 text-red-600' :
                   'bg-blue-100 text-blue-600'
                 }`}>
                    <AlertTriangle size={24} />
@@ -1372,9 +1596,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {confirmationAction.type === 'BulkTrash' && 'Trash Selected Items'}
                   {confirmationAction.type === 'BulkCancel' && 'Cancel Selected Items'}
                   {confirmationAction.type === 'BulkComplete' && 'Complete Selected Items'}
+                  {confirmationAction.type === 'ResetDatabase' && 'Reset System Database?'}
                 </h3>
                 <p className="text-gray-500 text-sm mb-6">
-                  {confirmationAction.type?.includes('Trash')
+                  {confirmationAction.type === 'ResetDatabase'
+                    ? 'WARNING: This will delete ALL current appointments and inquiries and reset the system to its initial state. Are you absolutely sure?' 
+                    : confirmationAction.type?.includes('Trash')
                     ? 'Are you sure you want to remove these items? You can restore them later.' 
                     : confirmationAction.type === 'Restore' 
                     ? 'This appointment will be moved back to Pending status.'
@@ -1399,10 +1626,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        confirmationAction.type?.includes('Cancel') ? 'bg-red-600 hover:bg-red-700' :
                        confirmationAction.type?.includes('Trash') ? 'bg-gray-600 hover:bg-gray-700' :
                        confirmationAction.type === 'Restore' ? 'bg-gold-600 hover:bg-gold-700' :
+                       confirmationAction.type === 'ResetDatabase' ? 'bg-red-600 hover:bg-red-700' :
                        'bg-blue-600 hover:bg-blue-700'
                      }`}
                    >
-                     Yes, Confirm
+                     {confirmationAction.type === 'ResetDatabase' ? 'Yes, Delete All' : 'Yes, Confirm'}
                    </button>
                 </div>
              </div>
@@ -1410,7 +1638,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Client History Modal */}
       {viewClientHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col animate-slide-in">
@@ -1426,15 +1653,35 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
              </div>
              
-             <div className="p-6 bg-gray-50 border-b border-gray-100 flex flex-col md:flex-row gap-4 md:gap-8">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                   <Phone size={16} className="text-gold-600" /> 
-                   <span>{clientInfo.phone || 'N/A'}</span>
+             <div className="p-6 bg-gray-50 border-b border-gray-100">
+                <div className="flex flex-col md:flex-row gap-4 md:gap-8 mb-6">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                     <Phone size={16} className="text-gold-600" /> 
+                     <span>{clientInfo.phone || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                     <Mail size={16} className="text-gold-600" /> 
+                     <span>{clientInfo.email || 'N/A'}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                   <Mail size={16} className="text-gold-600" /> 
-                   <span>{clientInfo.email || 'N/A'}</span>
-                </div>
+
+                {/* Client Stats Summary */}
+                {clientHistoryStats && (
+                   <div className="grid grid-cols-3 gap-4 mb-2">
+                      <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                         <p className="text-xs text-blue-500 font-bold uppercase">Completed</p>
+                         <p className="text-xl font-bold text-blue-700">{clientHistoryStats.completed}</p>
+                      </div>
+                      <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
+                         <p className="text-xs text-red-500 font-bold uppercase">Cancelled</p>
+                         <p className="text-xl font-bold text-red-700">{clientHistoryStats.cancelled}</p>
+                      </div>
+                      <div className="bg-gold-50 p-3 rounded-lg border border-gold-100 text-center">
+                         <p className="text-xs text-gold-600 font-bold uppercase">Top Service</p>
+                         <p className="text-sm font-bold text-gold-800 truncate">{clientHistoryStats.favoriteService}</p>
+                      </div>
+                   </div>
+                )}
              </div>
 
              <div className="p-6 overflow-y-auto">
@@ -1482,7 +1729,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Appointment Details Modal */}
       {viewAppointment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full flex flex-col animate-slide-in overflow-hidden max-h-[90vh] overflow-y-auto">
@@ -1571,6 +1817,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                          Cancel
                        </button>
                        <button 
+                         onClick={() => openConfirmation(viewAppointment.id, 'Trash')}
+                         className="px-4 py-2 border border-gray-300 text-gray-500 bg-white hover:bg-gray-100 rounded-lg text-sm font-bold transition-colors"
+                       >
+                         Trash
+                       </button>
+                       <button 
                          onClick={() => openConfirmation(viewAppointment.id, 'Complete')}
                          className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-bold transition-colors shadow-sm"
                        >
@@ -1605,7 +1857,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Appointment Tooltip Portal */}
       {tooltipData && (
         <div 
           className="fixed z-50 bg-gray-900 text-white p-3 rounded-lg shadow-xl text-xs pointer-events-none max-w-xs animate-fade-in hidden md:block"
@@ -1630,7 +1881,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 "{tooltipData.appointment.notes}"
              </div>
           )}
-          {/* Triangle Pointer */}
           <div className="absolute top-full left-4 -mt-px border-4 border-transparent border-t-gray-900"></div>
         </div>
       )}

@@ -1,20 +1,21 @@
+
 import React, { useState } from 'react';
-import { ArrowRight, Star, Tag, Check, ArrowUpRight } from 'lucide-react';
+import { ArrowRight, Star, Tag, Check, ArrowUpRight, Lock } from 'lucide-react';
 import { ServiceInfo, ServiceCategory } from '../types';
-import { servicesData } from '../data/services';
 
 interface ServicePageProps {
   onServiceClick: (service: ServiceInfo) => void;
   onBookClick: (category?: string, serviceTitle?: string) => void;
+  services: ServiceInfo[]; // New Prop
 }
 
-const ServicePage: React.FC<ServicePageProps> = ({ onServiceClick, onBookClick }) => {
+const ServicePage: React.FC<ServicePageProps> = ({ onServiceClick, onBookClick, services }) => {
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<string>('All');
 
-  // Filter Services
+  // Filter Services based on selected category. We include unavailable ones but show them differently.
   const filteredServices = selectedServiceCategory === 'All' 
-    ? servicesData 
-    : servicesData.filter(service => service.category === selectedServiceCategory);
+    ? services 
+    : services.filter(service => service.category === selectedServiceCategory);
 
   return (
     <div className="pt-20 animate-fade-in bg-gray-50 min-h-screen">
@@ -63,9 +64,9 @@ const ServicePage: React.FC<ServicePageProps> = ({ onServiceClick, onBookClick }
           {filteredServices.map((service, index) => (
             <div 
               key={service.id} 
-              className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 group cursor-pointer flex flex-col h-full animate-fade-in-up"
+              className={`bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 group cursor-pointer flex flex-col h-full animate-fade-in-up ${!service.available ? 'opacity-75 grayscale' : ''}`}
               style={{ animationDelay: `${index * 50}ms` }}
-              onClick={() => onServiceClick(service)}
+              onClick={() => service.available && onServiceClick(service)}
             >
               <div className="h-48 overflow-hidden relative">
                 <img 
@@ -77,11 +78,18 @@ const ServicePage: React.FC<ServicePageProps> = ({ onServiceClick, onBookClick }
                 <div className="absolute top-3 left-3 bg-white/90 backdrop-blur text-[10px] font-bold px-2 py-1 rounded text-gray-800 shadow-sm uppercase tracking-wider">
                   {service.category}
                 </div>
+                {!service.available && (
+                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[2px]">
+                      <span className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wider flex items-center gap-2 shadow-lg">
+                         <Lock size={16} /> Temporarily Unavailable
+                      </span>
+                   </div>
+                )}
               </div>
               
               <div className="p-6 flex flex-col flex-grow">
                 <div className="mb-2">
-                   <h3 className="font-serif text-lg font-bold text-gray-900 leading-tight group-hover:text-gold-600 transition-colors">
+                   <h3 className={`font-serif text-lg font-bold text-gray-900 leading-tight group-hover:text-gold-600 transition-colors ${!service.available ? 'line-through text-gray-400' : ''}`}>
                     {service.title}
                   </h3>
                 </div>
@@ -97,11 +105,16 @@ const ServicePage: React.FC<ServicePageProps> = ({ onServiceClick, onBookClick }
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
-                      onBookClick(service.category, service.title);
+                      if (service.available) onBookClick(service.category, service.title);
                     }}
-                    className="bg-gray-900 text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-gold-600 transition-colors shadow-sm"
+                    disabled={!service.available}
+                    className={`text-xs font-bold px-4 py-2 rounded-full transition-colors shadow-sm ${
+                        service.available 
+                        ? 'bg-gray-900 text-white hover:bg-gold-600' 
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                    }`}
                   >
-                    Book Now
+                    {service.available ? 'Book Now' : 'Closed'}
                   </button>
                 </div>
               </div>

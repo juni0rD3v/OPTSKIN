@@ -15,6 +15,7 @@ export interface ServiceInfo {
   benefits: string[];
   priceRange: string;
   image: string;
+  available: boolean;
 }
 
 export interface BlogPost {
@@ -60,6 +61,8 @@ export interface Appointment {
   notes?: string;
 }
 
+export type InquiryStatus = 'New' | 'Contacted' | 'Follow-up Needed' | 'Resolved';
+
 export interface Inquiry {
   id: string;
   name: string;
@@ -68,4 +71,5 @@ export interface Inquiry {
   message: string;
   date: string;
   read: boolean;
+  status?: InquiryStatus;
 }

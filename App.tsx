@@ -13,8 +13,7 @@ import AdminLogin from './components/AdminLogin';
 import AdminDashboard from './components/AdminDashboard';
 import Toast, { ToastType } from './components/Toast';
 import { ArrowRight, Star, Calendar, ChevronDown, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
-import { ServiceInfo, BlogPost, ServiceCategory, BookingFormData, Appointment, AppointmentStatus, Inquiry } from './types';
-import { servicesData } from './data/services';
+import { ServiceInfo, BlogPost, ServiceCategory, BookingFormData, Appointment, AppointmentStatus, Inquiry, InquiryStatus } from './types';
 import { blogPostsData } from './data/blogPosts';
 import { backend } from './services/backend';
 
@@ -22,6 +21,7 @@ const App: React.FC = () => {
   // Navigation State
   const [currentPage, setCurrentPage] = useState<'home' | 'about' | 'blog' | 'services' | 'login' | 'admin'>('home');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminRole, setAdminRole] = useState<'staff' | 'superadmin' | null>(null);
 
   // Toast State
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({ 
@@ -53,17 +53,20 @@ const App: React.FC = () => {
   // --- Admin / Data State (Now Fetched from Backend) ---
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [services, setServices] = useState<ServiceInfo[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
 
   // Fetch Data on Load
   const loadData = async () => {
     try {
-      const [fetchedAppts, fetchedInquiries] = await Promise.all([
+      const [fetchedAppts, fetchedInquiries, fetchedServices] = await Promise.all([
         backend.getAppointments(),
-        backend.getInquiries()
+        backend.getInquiries(),
+        backend.getServices()
       ]);
       setAppointments(fetchedAppts);
       setInquiries(fetchedInquiries);
+      setServices(fetchedServices);
     } catch (error) {
       console.error("Failed to load data:", error);
       showToast("Failed to load backend data", "error");
@@ -163,13 +166,15 @@ const App: React.FC = () => {
   };
 
   // Admin Handlers
-  const handleAdminLogin = () => {
+  const handleAdminLogin = (role: 'staff' | 'superadmin') => {
     setIsAuthenticated(true);
+    setAdminRole(role);
     setCurrentPage('admin');
   };
 
   const handleAdminLogout = () => {
     setIsAuthenticated(false);
+    setAdminRole(null);
     setCurrentPage('login');
   };
 
@@ -218,7 +223,8 @@ const App: React.FC = () => {
       phone: data.phone,
       message: data.message,
       date: new Date().toISOString().split('T')[0],
-      read: false
+      read: false,
+      status: 'New'
     };
     
     // Save to backend
@@ -236,6 +242,18 @@ const App: React.FC = () => {
     
     // Persist
     await backend.markInquiryRead(id);
+  };
+
+  const handleUpdateInquiryStatus = async (id: string, status: InquiryStatus) => {
+    setInquiries(prev => prev.map(inq => inq.id === id ? { ...inq, status } : inq));
+    await backend.updateInquiryStatus(id, status);
+    showToast(`Inquiry status updated to ${status}`, 'success');
+  }
+
+  const handleToggleServiceAvailability = async (id: string, isAvailable: boolean) => {
+    setServices(prev => prev.map(s => s.id === id ? { ...s, available: isAvailable } : s));
+    await backend.toggleServiceAvailability(id, isAvailable);
+    showToast(`Service is now ${isAvailable ? 'available' : 'unavailable'}`, 'info');
   };
 
   const handleDownloadBackup = async () => {
@@ -272,6 +290,12 @@ const App: React.FC = () => {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleResetDatabase = async () => {
+    await backend.resetDatabase();
+    showToast('Database reset to factory defaults.', 'info');
+    loadData();
   };
 
   // Hero Slides Data
@@ -329,13 +353,18 @@ const App: React.FC = () => {
           onLogout={handleAdminLogout} 
           appointments={appointments}
           inquiries={inquiries}
+          services={services}
           onStatusChange={handleUpdateAppointmentStatus}
           onBulkStatusChange={handleBulkStatusChange}
           onMarkInquiryRead={handleMarkInquiryRead}
+          onInquiryStatusChange={handleUpdateInquiryStatus}
+          onToggleServiceAvailability={handleToggleServiceAvailability}
           showToast={showToast}
           onViewSite={() => setCurrentPage('home')}
           onDownloadBackup={handleDownloadBackup}
           onUploadBackup={handleUploadBackup}
+          onResetDatabase={handleResetDatabase}
+          adminRole={adminRole}
         />
       );
     }
@@ -347,7 +376,8 @@ const App: React.FC = () => {
       return (
         <ServicePage 
           onServiceClick={handleServiceClick} 
-          onBookClick={handleOpenBooking} 
+          onBookClick={handleOpenBooking}
+          services={services}
         />
       );
     }
@@ -498,7 +528,7 @@ const App: React.FC = () => {
              </div>
              
              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                {servicesData.slice(0, 4).map((service, index) => (
+                {services.filter(s => s.available).slice(0, 4).map((service, index) => (
                   <div 
                     key={service.id}
                     onClick={() => handleServiceClick(service)}
@@ -664,6 +694,7 @@ const App: React.FC = () => {
         preselectedServiceId={preselectedServiceTitle}
         onConfirmBooking={handleNewBooking}
         showToast={showToast}
+        services={services}
       />
 
       <ServiceModal
