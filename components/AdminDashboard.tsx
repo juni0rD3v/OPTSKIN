@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, Calendar as CalendarIcon, MessageSquare, LogOut, 
@@ -75,9 +74,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Report Filter State
   const [reportFilterMonth, setReportFilterMonth] = useState<string>('All');
 
-  // Pagination State
+  // Pagination State - Appointments
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(5);
+
+  // Pagination State - Services
+  const [currentServicePage, setCurrentServicePage] = useState(1);
+  const [servicesPerPage, setServicesPerPage] = useState(5);
 
   // Calendar State
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -151,6 +154,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Reset pagination and selections when filters change
   useEffect(() => {
     setCurrentPage(1);
+    setCurrentServicePage(1);
     setSelectedIds(new Set()); 
     setIsBulkDropdownOpen(false);
   }, [searchTerm, activeStatusTab, filterService, dateRange]);
@@ -158,7 +162,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Close sidebar when tab changes on mobile
   useEffect(() => {
     setIsSidebarOpen(false);
-    // Also clear selections on tab change to prevent mixing appointments/services IDs
     setSelectedIds(new Set());
     setIsBulkDropdownOpen(false);
   }, [activeTab]);
@@ -198,11 +201,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return 0;
   });
 
-  // Pagination Logic
+  // Pagination Logic - Appointments
   const totalPages = Math.ceil(sortedAppointments.length / itemsPerPage);
   const paginatedAppointments = sortedAppointments.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
+  );
+
+  // Pagination Logic - Services
+  const filteredServices = services.filter(s => 
+    s.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    s.category.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+  const totalServicePages = Math.ceil(filteredServices.length / servicesPerPage);
+  const paginatedServices = filteredServices.slice(
+    (currentServicePage - 1) * servicesPerPage,
+    currentServicePage * servicesPerPage
   );
 
   // Bulk Selection Logic
@@ -220,14 +235,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setSelectedIds(newSelected);
         }
     } else if (activeTab === 'services') {
-        const filteredServices = services.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()));
-        if (filteredServices.length > 0 && filteredServices.every(s => selectedIds.has(s.id))) {
+        if (paginatedServices.length > 0 && paginatedServices.every(s => selectedIds.has(s.id))) {
             const newSelected = new Set(selectedIds);
-            filteredServices.forEach(s => newSelected.delete(s.id));
+            paginatedServices.forEach(s => newSelected.delete(s.id));
             setSelectedIds(newSelected);
         } else {
             const newSelected = new Set(selectedIds);
-            filteredServices.forEach(s => newSelected.add(s.id));
+            paginatedServices.forEach(s => newSelected.add(s.id));
             setSelectedIds(newSelected);
         }
     }
@@ -307,6 +321,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [viewClientHistory, appointments]);
 
+  // Derived state for Client History Modal
+  const clientHistoryAppointments = useMemo(() => {
+    if (!viewClientHistory) return [];
+    return appointments
+      .filter(a => a.clientName === viewClientHistory)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [viewClientHistory, appointments]);
+
+  const clientInfo = useMemo(() => {
+    if (clientHistoryAppointments.length === 0) return { phone: '', email: '' };
+    // Prioritize the most recent contact info found
+    const latest = clientHistoryAppointments[0];
+    return { phone: latest.phone, email: latest.email };
+  }, [clientHistoryAppointments]);
+
   // --- Reports Logic ---
   const reportsData = useMemo(() => {
     const filteredReportApps = appointments.filter(apt => {
@@ -317,17 +346,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return monthName === reportFilterMonth;
     });
 
-    // 1. Service Popularity
+    const activeApps = filteredReportApps.filter(a => a.status !== 'Trash');
     const serviceCounts: Record<string, number> = {};
-    filteredReportApps.forEach(apt => {
+    activeApps.forEach(apt => {
       serviceCounts[apt.service] = (serviceCounts[apt.service] || 0) + 1;
     });
     const topServices = Object.entries(serviceCounts)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 5)
-      .map(([name, count]) => ({ name, count, percentage: (count / (filteredReportApps.length || 1)) * 100 }));
+      .map(([name, count]) => ({ name, count, percentage: (count / (activeApps.length || 1)) * 100 }));
 
-    // 2. Revenue Estimation
     let totalRevenue = 0;
     filteredReportApps.filter(a => a.status === 'Completed').forEach(apt => {
        const service = services.find(s => s.title === apt.service) || servicesData.find(s => s.title === apt.service);
@@ -343,7 +371,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
        }
     });
 
-    // 3. Chart Data (Volume)
     let chartData = [];
     let chartLabel = '';
 
@@ -374,7 +401,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }));
     }
 
-    // 4. Status Breakdown
     const statusCounts = {
         Pending: 0,
         Confirmed: 0,
@@ -570,18 +596,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsServiceModalOpen(false);
   };
 
-  // Client History Helpers
-  const clientHistoryAppointments = viewClientHistory 
-    ? appointments
-        .filter(a => a.clientName === viewClientHistory)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    : [];
-  
-  const clientInfo = clientHistoryAppointments.length > 0 ? {
-    phone: clientHistoryAppointments[0].phone,
-    email: clientHistoryAppointments[0].email
-  } : { phone: '', email: '' };
-
   const statusTabs: (AppointmentStatus | 'All')[] = ['All', 'Pending', 'Confirmed', 'Completed', 'Cancelled', 'Trash'];
 
   // Calendar Day Modal Appointments
@@ -695,9 +709,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </header>
 
-        {/* ... (Overview, Calendar, Appointments, Clients, Inquiries, Reports logic identical to previous file, omitted for brevity but included in output if requested full file) ... */}
-        {/* I am including the full code to be safe and ensure functionality is unbroken */}
-        
         {activeTab === 'overview' && (
           <div className="space-y-8 animate-fade-in pb-10">
             {/* Stats Cards */}
@@ -790,10 +801,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* ... Reports Tab Logic ... */}
+        {/* REPORTS TAB */}
         {activeTab === 'reports' && (
            <div className="space-y-6 animate-fade-in pb-10">
-             {/* Filter Control */}
              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-lg font-bold text-gray-800">Performance Metrics</h2>
                 <div className="flex items-center gap-2">
@@ -810,7 +820,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    </select>
                 </div>
              </div>
-             {/* ... Reports Graphs ... */}
+             
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
                    <div>
@@ -822,6 +832,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <DollarSign size={24} />
                    </div>
                 </div>
+                {/* ... other report cards ... */}
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
                    <div>
                       <p className="text-sm text-gray-500 mb-1">Completion Rate</p>
@@ -843,7 +854,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    </div>
                 </div>
              </div>
-             {/* ... Charts ... */}
+             
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                    <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
@@ -1036,25 +1047,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </button>
                           
                           {isBulkDropdownOpen && (
-                            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in">
-                               <button 
-                                 onClick={() => { openConfirmation(null, 'BulkComplete'); setIsBulkDropdownOpen(false); }}
-                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 transition-colors"
-                               >
-                                 <CheckSquare size={16} /> Mark Completed
-                               </button>
-                               <button 
-                                 onClick={() => { openConfirmation(null, 'BulkCancel'); setIsBulkDropdownOpen(false); }}
-                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 flex items-center gap-2 transition-colors border-t border-gray-50"
-                               >
-                                 <XCircle size={16} /> Cancel Selected
-                               </button>
-                               <button 
-                                 onClick={() => { openConfirmation(null, 'BulkTrash'); setIsBulkDropdownOpen(false); }}
-                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors border-t border-gray-50"
-                               >
-                                 <Trash2 size={16} /> Move to Trash
-                               </button>
+                            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in z-30">
+                               <button onClick={() => { openConfirmation(null, 'BulkComplete'); setIsBulkDropdownOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 border-b border-gray-50"><CheckSquare size={16}/> Mark Completed</button>
+                               <button onClick={() => { openConfirmation(null, 'BulkCancel'); setIsBulkDropdownOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-500 flex items-center gap-2 border-b border-gray-50"><XCircle size={16}/> Cancel Selected</button>
+                               <button onClick={() => { openConfirmation(null, 'BulkTrash'); setIsBulkDropdownOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"><Trash2 size={16}/> Move to Trash</button>
                             </div>
                           )}
                        </div>
@@ -1118,7 +1114,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                )}
              </div>
 
-             <div className="overflow-x-auto flex-1">
+             {/* Mobile Card View */}
+             <div className="md:hidden overflow-y-auto flex-1 p-4 space-y-4">
+                {paginatedAppointments.map(apt => (
+                   <div key={apt.id} className={`bg-white rounded-lg border border-gray-200 shadow-sm p-4 relative ${selectedIds.has(apt.id) ? 'ring-2 ring-gold-500 bg-gold-50/20' : ''}`}>
+                      <div className="absolute top-4 right-4">
+                         <span className={`px-2 py-1 rounded-full text-xs font-bold border ${getStatusBadge(apt.status)}`}>
+                           {apt.status}
+                         </span>
+                      </div>
+                      <div className="flex items-start gap-3 mb-3">
+                         <input 
+                            type="checkbox" 
+                            checked={selectedIds.has(apt.id)}
+                            onChange={() => handleSelectOne(apt.id)}
+                            className="mt-1 w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                         />
+                         <div>
+                            <h4 className="font-bold text-gray-900">{apt.clientName}</h4>
+                            <p className="text-xs text-gray-500">{apt.id}</p>
+                         </div>
+                      </div>
+                      <div className="space-y-2 text-sm text-gray-600 mb-4">
+                         <div className="flex items-center gap-2">
+                            <Briefcase size={14} className="text-gold-600"/> 
+                            <span className="font-medium">{apt.service}</span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                            <Clock size={14} className="text-gold-600"/> 
+                            {new Date(apt.date).toLocaleDateString()} • {apt.time}
+                         </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+                         <button onClick={() => setViewAppointment(apt)} className="p-2 bg-gray-100 rounded text-gray-600"><Eye size={16}/></button>
+                         {apt.status === 'Confirmed' && (
+                            <button onClick={() => openConfirmation(apt.id, 'Complete')} className="p-2 bg-blue-100 text-blue-600 rounded"><CheckSquare size={16}/></button>
+                         )}
+                         {(apt.status === 'Pending' || apt.status === 'Confirmed') && (
+                            <button onClick={() => openConfirmation(apt.id, 'Cancel')} className="p-2 bg-red-100 text-red-600 rounded"><XCircle size={16}/></button>
+                         )}
+                      </div>
+                   </div>
+                ))}
+             </div>
+
+             {/* Desktop Table View */}
+             <div className="hidden md:block overflow-x-auto flex-1">
                <table className="w-full text-left border-collapse min-w-[800px]">
                  <thead>
                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
@@ -1188,24 +1229,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        </td>
                        <td className="p-4">
                          <div className="flex items-center">
-                            <div className="flex flex-col">
-                               <span className="font-medium text-gray-900">{apt.service}</span>
-                               <span className="text-[10px] text-gray-400 uppercase tracking-wide">
-                                  {services.find(s => s.title === apt.service)?.category || 'General'}
-                               </span>
-                            </div>
+                            <span className="font-medium text-gray-900">{apt.service}</span>
                             {apt.notes && (
                               <span title="Has notes" className="ml-2">
                                 <FileText size={14} className="text-gray-400" />
                               </span>
                             )}
                          </div>
-                         <div className="text-gray-500 flex items-center gap-1 text-xs mt-1">
-                           <Clock size={12} /> 
-                           <span className="font-semibold text-gray-700">
-                              {new Date(apt.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                           </span> 
-                           <span className="mx-1">•</span> {apt.time}
+                         <div className="text-gray-500 flex items-center gap-1 text-xs mt-0.5">
+                           <Clock size={12} /> {apt.date} <span className="mx-1">•</span> {apt.time}
                          </div>
                        </td>
                        <td className="p-4">
@@ -1451,6 +1483,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <option value="Follow-up Needed">Follow-up Needed</option>
                             <option value="Resolved">Resolved</option>
                          </select>
+                         <button className="text-gray-400 hover:text-gold-600">
+                           <ChevronRight size={20} />
+                         </button>
                       </div>
                     </div>
                     <div className="text-sm text-gray-500 mb-2 flex flex-col md:flex-row md:gap-4">
@@ -1481,15 +1516,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* SERVICES TAB */}
         {activeTab === 'services' && (
-           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in pb-10">
-              <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in flex flex-col h-[calc(100vh-140px)]">
+              <div className="p-6 border-b border-gray-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 flex-shrink-0">
                  <div>
                     <h2 className="text-lg font-bold text-gray-900">Services Management</h2>
                     <p className="text-sm text-gray-500">Toggle availability of clinic services.</p>
                  </div>
                  
                  {/* Bulk Actions & Search Toolbar */}
-                 <div className="flex gap-3 items-center">
+                 <div className="flex flex-col md:flex-row gap-3 items-start md:items-center w-full xl:w-auto">
                     {selectedIds.size > 0 && (
                        <div className="relative animate-fade-in z-20">
                           <button 
@@ -1501,7 +1536,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </button>
                           
                           {isBulkDropdownOpen && (
-                            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in">
+                            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in z-30">
                                <button 
                                  onClick={() => { openConfirmation(null, 'BulkEnableServices'); setIsBulkDropdownOpen(false); }}
                                  className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-green-50 hover:text-green-600 flex items-center gap-2 transition-colors"
@@ -1525,39 +1560,85 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        </div>
                     )}
 
-                    <div className="relative w-full md:w-64">
-                       <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                       <input 
-                         type="text" 
-                         placeholder="Search services..." 
-                         className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500"
-                         value={searchTerm}
-                         onChange={(e) => setSearchTerm(e.target.value)}
-                       />
+                    <div className="flex gap-3 w-full md:w-auto">
+                        <div className="relative w-full md:w-64">
+                           <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                           <input 
+                             type="text" 
+                             placeholder="Search services..." 
+                             className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500"
+                             value={searchTerm}
+                             onChange={(e) => setSearchTerm(e.target.value)}
+                           />
+                        </div>
+                        <button 
+                           onClick={openAddServiceModal}
+                           className="bg-black text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gold-600 transition-colors whitespace-nowrap"
+                        >
+                           <Plus size={16} /> <span className="hidden md:inline">Add Service</span>
+                        </button>
                     </div>
-                    <button 
-                       onClick={openAddServiceModal}
-                       className="bg-black text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gold-600 transition-colors"
-                    >
-                       <Plus size={16} /> Add Service
-                    </button>
                  </div>
               </div>
               
-              <div className="overflow-x-auto">
+              {/* Mobile Card View for Services */}
+              <div className="md:hidden overflow-y-auto flex-1 p-4 space-y-4">
+                 {paginatedServices.map(service => (
+                    <div key={service.id} className={`bg-white rounded-lg border border-gray-200 shadow-sm p-4 relative ${selectedIds.has(service.id) ? 'ring-2 ring-gold-500 bg-gold-50/20' : ''}`}>
+                       <div className="flex items-start gap-3 mb-3">
+                          <input 
+                             type="checkbox" 
+                             checked={selectedIds.has(service.id)}
+                             onChange={() => handleSelectOne(service.id)}
+                             className="mt-1 w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
+                          />
+                          <div className="flex-1">
+                             <div className="flex justify-between items-start">
+                                <h4 className={`font-bold ${service.available ? 'text-gray-900' : 'text-gray-400 line-through'}`}>{service.title}</h4>
+                                <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold border ${service.available ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-500 border-red-200'}`}>
+                                   {service.available ? 'Active' : 'Offline'}
+                                </span>
+                             </div>
+                             <p className="text-xs text-gold-600 font-bold uppercase mt-1">{service.category}</p>
+                          </div>
+                       </div>
+                       
+                       <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                          <span className="font-medium text-gray-700">{service.priceRange}</span>
+                       </div>
+
+                       <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                          <div className="flex items-center gap-2">
+                             <span className="text-[10px] text-gray-400 uppercase font-bold">Booking</span>
+                             <button 
+                               onClick={() => onToggleServiceAvailability(service.id, !service.available)}
+                               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+                                 service.available ? 'bg-green-500' : 'bg-gray-200'
+                               }`}
+                             >
+                               <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${service.available ? 'translate-x-5' : 'translate-x-1'}`}/>
+                             </button>
+                          </div>
+                          <div className="flex gap-2">
+                             <button onClick={() => openEditServiceModal(service)} className="p-2 bg-blue-50 text-blue-600 rounded"><Edit size={16}/></button>
+                             <button onClick={() => openConfirmation(service.id, 'DeleteService')} className="p-2 bg-red-50 text-red-600 rounded"><Trash2 size={16}/></button>
+                          </div>
+                       </div>
+                    </div>
+                 ))}
+              </div>
+
+              {/* Desktop Table View for Services */}
+              <div className="hidden md:block overflow-x-auto flex-1">
                  <table className="w-full text-left border-collapse min-w-[800px]">
                     <thead>
-                       <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                       <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm">
                           <th className="p-4 w-10">
                             <input 
                               type="checkbox" 
                               onChange={handleSelectAll}
-                              // Check if ALL filtered items are selected
                               checked={
-                                (() => {
-                                  const filtered = services.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()));
-                                  return filtered.length > 0 && filtered.every(s => selectedIds.has(s.id));
-                                })()
+                                paginatedServices.length > 0 && paginatedServices.every(s => selectedIds.has(s.id))
                               }
                               className="w-4 h-4 rounded border-gray-300 text-gold-600 focus:ring-gold-500"
                             />
@@ -1570,9 +1651,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-sm">
-                       {services
-                          .filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || s.category.toLowerCase().includes(searchTerm.toLowerCase()))
-                          .map((service) => (
+                       {paginatedServices.map((service) => (
                           <tr 
                             key={service.id} 
                             className={`hover:bg-gray-50 transition-colors ${selectedIds.has(service.id) ? 'bg-gold-50/30' : ''}`}
@@ -1628,7 +1707,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                    </button>
                                    <button 
                                       onClick={() => openConfirmation(service.id, 'DeleteService')}
-                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors" title="Delete Service"
+                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Delete Service"
                                    >
                                       <Trash2 size={18} />
                                    </button>
@@ -1636,9 +1715,53 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                              </td>
                           </tr>
                        ))}
+                       {paginatedServices.length === 0 && (
+                          <tr><td colSpan={6} className="p-8 text-center text-gray-500">No services found.</td></tr>
+                       )}
                     </tbody>
                  </table>
               </div>
+
+              {/* Service Pagination Controls */}
+              <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50 flex-shrink-0">
+               <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <span className="hidden md:inline">Rows per page:</span>
+                  <select 
+                    value={servicesPerPage}
+                    onChange={(e) => {
+                      setServicesPerPage(Number(e.target.value));
+                      setCurrentServicePage(1);
+                    }}
+                    className="border border-gray-300 rounded p-1 outline-none text-sm"
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                  </select>
+                  <span className="ml-2">
+                    {paginatedServices.length > 0 
+                      ? `${(currentServicePage - 1) * servicesPerPage + 1}-${Math.min(currentServicePage * servicesPerPage, filteredServices.length)} of ${filteredServices.length}`
+                      : '0 of 0'
+                    }
+                  </span>
+               </div>
+               <div className="flex gap-2">
+                  <button 
+                    onClick={() => setCurrentServicePage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentServicePage === 1}
+                    className="p-2 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button 
+                    onClick={() => setCurrentServicePage(prev => Math.min(prev + 1, totalServicePages))}
+                    disabled={currentServicePage === totalServicePages || totalServicePages === 0}
+                    className="p-2 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+               </div>
+             </div>
            </div>
         )}
 
@@ -1889,7 +2012,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Confirmation Modal - Updated for ResetDatabase */}
+      {/* Confirmation Modal */}
       {confirmationAction.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-slide-in">
@@ -1897,7 +2020,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
                   confirmationAction.type?.includes('Confirm') ? 'bg-green-100 text-green-600' :
                   confirmationAction.type?.includes('Cancel') ? 'bg-red-100 text-red-600' :
-                  confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' || confirmationAction.type === 'BulkDeleteServices' ? 'bg-gray-100 text-gray-600' :
+                  confirmationAction.type?.includes('Trash') || confirmationAction.type === 'DeleteService' ? 'bg-gray-100 text-gray-600' :
                   confirmationAction.type === 'Restore' ? 'bg-gold-100 text-gold-600' :
                   confirmationAction.type === 'ResetDatabase' ? 'bg-red-100 text-red-600' :
                   'bg-blue-100 text-blue-600'
@@ -1915,9 +2038,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {confirmationAction.type === 'BulkComplete' && 'Complete Selected Items'}
                   {confirmationAction.type === 'ResetDatabase' && 'Reset System Database?'}
                   {confirmationAction.type === 'DeleteService' && 'Delete Service?'}
-                  {confirmationAction.type === 'BulkEnableServices' && 'Enable Selected Services?'}
-                  {confirmationAction.type === 'BulkDisableServices' && 'Disable Selected Services?'}
-                  {confirmationAction.type === 'BulkDeleteServices' && 'Delete Selected Services?'}
+                  {confirmationAction.type === 'BulkEnableServices' && 'Enable Selected Services'}
+                  {confirmationAction.type === 'BulkDisableServices' && 'Disable Selected Services'}
+                  {confirmationAction.type === 'BulkDeleteServices' && 'Delete Selected Services'}
                 </h3>
                 <p className="text-gray-500 text-sm mb-6">
                   {confirmationAction.type === 'ResetDatabase'
