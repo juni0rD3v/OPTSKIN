@@ -53,6 +53,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'appointments' | 'inquiries' | 'clients' | 'reports' | 'settings' | 'services'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isBulkDropdownOpen, setIsBulkDropdownOpen] = useState(false);
   
   // Filter & Search State
   const [searchTerm, setSearchTerm] = useState('');
@@ -147,6 +148,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     setCurrentPage(1);
     setSelectedIds(new Set()); 
+    setIsBulkDropdownOpen(false);
   }, [searchTerm, activeStatusTab, filterService, dateRange]);
 
   // Close sidebar when tab changes on mobile
@@ -989,13 +991,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  <div className="flex items-center gap-2 w-full md:w-auto">
                     {/* Bulk Actions Dropdown */}
                     {selectedIds.size > 0 && (
-                       <div className="flex items-center gap-2 animate-fade-in">
-                          <span className="text-xs text-gray-500 font-bold hidden md:inline">{selectedIds.size} Selected</span>
-                          <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                             <button onClick={() => openConfirmation(null, 'BulkComplete')} className="p-2 hover:bg-blue-50 text-blue-600 border-r border-gray-100" title="Complete Selected"><CheckSquare size={16}/></button>
-                             <button onClick={() => openConfirmation(null, 'BulkCancel')} className="p-2 hover:bg-red-50 text-red-500 border-r border-gray-100" title="Cancel Selected"><XCircle size={16}/></button>
-                             <button onClick={() => openConfirmation(null, 'BulkTrash')} className="p-2 hover:bg-gray-100 text-gray-600" title="Trash Selected"><Trash2 size={16}/></button>
-                          </div>
+                       <div className="relative animate-fade-in z-20">
+                          <button 
+                            onClick={() => setIsBulkDropdownOpen(!isBulkDropdownOpen)}
+                            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                          >
+                            Bulk Actions ({selectedIds.size})
+                            <ChevronDown size={14} />
+                          </button>
+                          
+                          {isBulkDropdownOpen && (
+                            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in">
+                               <button 
+                                 onClick={() => { openConfirmation(null, 'BulkComplete'); setIsBulkDropdownOpen(false); }}
+                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 transition-colors"
+                               >
+                                 <CheckSquare size={16} /> Mark Completed
+                               </button>
+                               <button 
+                                 onClick={() => { openConfirmation(null, 'BulkCancel'); setIsBulkDropdownOpen(false); }}
+                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 flex items-center gap-2 transition-colors border-t border-gray-50"
+                               >
+                                 <XCircle size={16} /> Cancel Selected
+                               </button>
+                               <button 
+                                 onClick={() => { openConfirmation(null, 'BulkTrash'); setIsBulkDropdownOpen(false); }}
+                                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors border-t border-gray-50"
+                               >
+                                 <Trash2 size={16} /> Move to Trash
+                               </button>
+                            </div>
+                          )}
                        </div>
                     )}
                     <div className="relative w-full md:w-96">
@@ -1127,15 +1153,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                        </td>
                        <td className="p-4">
                          <div className="flex items-center">
-                            <span className="font-medium text-gray-900">{apt.service}</span>
+                            <div className="flex flex-col">
+                               <span className="font-medium text-gray-900">{apt.service}</span>
+                               <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                                  {services.find(s => s.title === apt.service)?.category || 'General'}
+                               </span>
+                            </div>
                             {apt.notes && (
                               <span title="Has notes" className="ml-2">
                                 <FileText size={14} className="text-gray-400" />
                               </span>
                             )}
                          </div>
-                         <div className="text-gray-500 flex items-center gap-1 text-xs mt-0.5">
-                           <Clock size={12} /> {apt.date} <span className="mx-1">•</span> {apt.time}
+                         <div className="text-gray-500 flex items-center gap-1 text-xs mt-1">
+                           <Clock size={12} /> 
+                           <span className="font-semibold text-gray-700">
+                              {new Date(apt.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                           </span> 
+                           <span className="mx-1">•</span> {apt.time}
                          </div>
                        </td>
                        <td className="p-4">
